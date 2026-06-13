@@ -56,7 +56,7 @@ export function SettingsTab() {
     } finally { setSaving(false); }
   }
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loadingâ€¦</div>;
+  if (loading) return <div className="text-sm text-muted-foreground">Loading...</div>;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -91,7 +91,7 @@ export function SettingsTab() {
       </div>
 
       <Button onClick={save} disabled={saving}>
-        <Save className="h-4 w-4 mr-1" /> {saving ? "Savingâ€¦" : "Save settings"}
+        <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save settings"}
       </Button>
     </div>
   );
@@ -106,5 +106,4 @@ function Field({ label, value, onChange, hint }: { label: string; value: string;
     </div>
   );
 }
-
 

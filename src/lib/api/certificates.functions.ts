@@ -9,12 +9,12 @@ export const generateCertificate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ enrolmentId: z.string().uuid() }))
   .handler(async ({ data }) => {
     const { enrolmentId } = data;
-    // load enrolment details
-    const { data: enrolment, error: enErr } = await supabaseAdmin.from('enrolments').select('id, student_id, course_id, students(id, full_name, email), courses(id, prefix, name)').eq('id', enrolmentId).maybeSingle();
+    // load enrolment details including student NRC
+    const { data: enrolment, error: enErr } = await supabaseAdmin.from('enrolments').select('id, student_id, course_id, students(id, full_name, email, national_id), courses(id, prefix, name)').eq('id', enrolmentId).maybeSingle();
     if (enErr) throw enErr;
     if (!enrolment) throw new Error('Enrolment not found');
 
-    const student = enrolment.students;
+    const student = enrolment.students as any;
     const course = enrolment.courses;
 
     const cert = await createCertificateWithCode({
@@ -24,6 +24,7 @@ export const generateCertificate = createServerFn({ method: "POST" })
       recipientEmail: student?.email ?? null,
       recipientName: student?.full_name ?? null,
       programme: course?.name ?? null,
+      nationalId: student?.national_id ?? null,
     });
 
     return cert;

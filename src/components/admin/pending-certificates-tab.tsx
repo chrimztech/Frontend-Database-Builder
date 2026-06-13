@@ -74,7 +74,7 @@ export function PendingCertificatesTab() {
 
       <div className="surface-panel rounded-xl overflow-hidden">
         {pending.isLoading ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">Loadingâ€¦</div>
+          <div className="p-10 text-center text-sm text-muted-foreground">Loading...</div>
         ) : (pending.data ?? []).length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">No pending certificates.</div>
         ) : (
@@ -94,7 +94,7 @@ export function PendingCertificatesTab() {
                   <TableCell>
                     <input type="checkbox" checked={!!selected[e.id]} onChange={() => toggle(e.id)} />
                   </TableCell>
-                  <TableCell>{e.students?.full_name ?? 'â€”'}<div className="text-xs text-muted-foreground">{e.students?.email ?? 'â€”'}</div></TableCell>
+                  <TableCell>{e.students?.full_name ?? '-'}<div className="text-xs text-muted-foreground">{e.students?.email ?? '-'}</div></TableCell>
                   <TableCell>{e.courses?.name ?? e.course_id}<div className="text-xs text-muted-foreground">{e.courses?.prefix ?? ''}</div></TableCell>
                   <TableCell className="text-muted-foreground">{e.status}</TableCell>
                   <TableCell className="text-right">
@@ -111,5 +111,4 @@ export function PendingCertificatesTab() {
     </div>
   );
 }
-
 

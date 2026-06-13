@@ -220,7 +220,7 @@ export function StudentProfilesTab() {
               <Label>Search student metadata</Label>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input className="pl-10" placeholder="Search studentsâ€¦" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input className="pl-10" placeholder="Search students..." value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-sm text-muted-foreground">
@@ -296,13 +296,13 @@ export function StudentProfilesTab() {
                     <CardContent className="space-y-2 text-sm text-muted-foreground">
                       <div>
                         <Label className="text-xs">Primary email</Label>
-                        <div className="text-sm">{selected.email ?? "â€”"}</div>
+                        <div className="text-sm">{selected.email ?? "-"}</div>
                       </div>
                       <div>
                         <Label className="text-xs">Primary phone</Label>
-                        <div className="text-sm">{selected.phone ?? "â€”"}</div>
+                        <div className="text-sm">{selected.phone ?? "-"}</div>
                       </div>
-                      <div>ID: {selected.category === "unza" ? selected.unza_student_id ?? "â€”" : selected.national_id ?? "â€”"}</div>
+                      <div>ID: {selected.category === "unza" ? selected.unza_student_id ?? "-" : selected.national_id ?? "-"}</div>
                     </CardContent>
                   </Card>
                   <Card className="border-dashed border-slate-200">
@@ -402,7 +402,7 @@ export function StudentProfilesTab() {
               <Tag className="h-4 w-4" /> Rich metadata enables deeper student insights.
             </div>
             <Button onClick={saveProfile} disabled={!selected || busy}>
-              {busy ? "Savingâ€¦" : "Save profile"}
+              {busy ? "Saving..." : "Save profile"}
             </Button>
           </CardFooter>
         </Card>
@@ -428,7 +428,7 @@ export function StudentProfilesTab() {
                 <div className="font-semibold">Registered courses</div>
                 <div className="mt-2 text-sm">
                   {enrolmentsQuery.isLoading ? (
-                    <div className="text-muted-foreground">Loadingâ€¦</div>
+                    <div className="text-muted-foreground">Loading...</div>
                   ) : (enrolmentsQuery.data ?? []).length === 0 ? (
                     <div className="text-muted-foreground">No enrolments</div>
                   ) : (
@@ -437,7 +437,7 @@ export function StudentProfilesTab() {
                         <div key={e.id} className="flex items-center justify-between">
                           <div>
                             <div className="font-medium">{e.courses?.name ?? e.course_id}</div>
-                            <div className="text-xs text-muted-foreground">{e.courses?.code ?? ""} Â· {e.status}</div>
+                            <div className="text-xs text-muted-foreground">{e.courses?.code ?? ""} - {e.status}</div>
                           </div>
                           <div className="text-xs text-muted-foreground">{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString() : ''}</div>
                         </div>

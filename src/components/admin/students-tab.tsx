@@ -493,6 +493,9 @@ function StudentDialog({
       if (category === "unza" && !unzaStudentId.trim()) {
         throw new Error("UNZA student ID is required for UNZA students");
       }
+      if (!nationalId.trim()) {
+        throw new Error("NRC number is required");
+      }
       if (!consent) {
         throw new Error(
           "You must confirm the student has consented to storing their details",
@@ -615,7 +618,7 @@ function StudentDialog({
             </Field>
           </div>
 
-          {category === "unza" ? (
+          {category === "unza" && (
             <Field label="UNZA student ID *" htmlFor="student-unza">
               <Input
                 id="student-unza"
@@ -626,16 +629,18 @@ function StudentDialog({
                 placeholder="e.g. 2021123456"
               />
             </Field>
-          ) : (
-            <Field label="National ID (optional)" htmlFor="student-national">
-              <Input
-                id="student-national"
-                maxLength={60}
-                value={nationalId}
-                onChange={(event) => setNationalId(event.target.value)}
-              />
-            </Field>
           )}
+
+          <Field label="NRC Number *" htmlFor="student-national">
+            <Input
+              id="student-national"
+              required
+              maxLength={60}
+              value={nationalId}
+              onChange={(event) => setNationalId(event.target.value)}
+              placeholder="e.g. 123456/78/9"
+            />
+          </Field>
 
           <Field label="Notes" htmlFor="student-notes">
             <Textarea

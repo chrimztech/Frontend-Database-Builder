@@ -48,6 +48,7 @@ type Cert = {
   email_status: string;
   email_sent_at: string | null;
   created_at: string;
+  national_id: string | null;
 };
 
 export function CertificatesTab() {
@@ -171,6 +172,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
       programme: cert.programme,
       issueDate: cert.issue_date,
       issuerName: cert.issuer_name,
+      nrcNumber: cert.national_id ?? undefined,
     });
   }
 
@@ -189,6 +191,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
         programme: cert.programme,
         issueDate: cert.issue_date,
         issuerName: cert.issuer_name,
+        nrcNumber: cert.national_id ?? undefined,
       });
 
       const verify = verificationUrl(cert.certificate_id);

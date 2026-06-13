@@ -4,13 +4,14 @@ function pad(num: number, size = 4) {
   return num.toString().padStart(size, '0');
 }
 
-export async function createCertificateWithCode({ enrolmentId, courseId, studentId, recipientEmail, recipientName, programme }: {
+export async function createCertificateWithCode({ enrolmentId, courseId, studentId, recipientEmail, recipientName, programme, nationalId }: {
   enrolmentId: string;
   courseId: string;
   studentId: string | null;
   recipientEmail?: string | null;
   recipientName?: string;
   programme?: string;
+  nationalId?: string | null;
 }) {
   // Ensure running on the server with service role
   const admin = supabaseAdmin as any;
@@ -37,12 +38,9 @@ export async function createCertificateWithCode({ enrolmentId, courseId, student
 
   if (nextNumber == null) throw new Error('Failed to allocate certificate number');
 
-  // 3) build the certificate_code using course prefix
-  const courseRes = await admin.from('courses').select('prefix').eq('id', courseId).maybeSingle();
-  if (courseRes.error) throw courseRes.error;
-  const prefix = courseRes.data?.prefix ?? 'CERT';
+  // 3) build the certificate_code — digits only: YYYYMMDD + 6-digit sequence
   const date = new Date().toISOString().slice(0,10).replace(/-/g,''); // YYYYMMDD
-  const code = `${prefix}-${date}-${pad(nextNumber,4)}`;
+  const code = `${date}${pad(nextNumber,6)}`;
 
   // 4) insert certificate record
   const insertPayload: any = {
@@ -52,7 +50,8 @@ export async function createCertificateWithCode({ enrolmentId, courseId, student
     recipient_email: recipientEmail ?? null,
     recipient_name: recipientName ?? null,
     programme: programme ?? null,
-    email_status: 'not_sent'
+    national_id: nationalId ?? null,
+    email_status: 'not_sent',
   };
 
   const insert = await admin.from('certificates').insert(insertPayload).select('id, certificate_code').single();

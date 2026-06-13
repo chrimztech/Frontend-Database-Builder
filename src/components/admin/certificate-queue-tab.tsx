@@ -79,7 +79,7 @@ export function CertificateQueueTab() {
     setSelected({});
     refresh();
     if (ok > 0) toast.success(`Sent ${ok} certificate${ok !== 1 ? 's' : ''}`);
-    if (fail > 0) toast.error(`${fail} failed â€” check those rows`);
+    if (fail > 0) toast.error(`${fail} failed - check those rows`);
   }
 
   const unsent = (q.data ?? []).filter((c) => c.email_status !== 'sent');
@@ -118,7 +118,7 @@ export function CertificateQueueTab() {
 
       <div className="surface-panel rounded-xl overflow-hidden">
         {q.isLoading ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">Loadingâ€¦</div>
+          <div className="p-10 text-center text-sm text-muted-foreground">Loading...</div>
         ) : (q.data ?? []).length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">No certificates found.</div>
         ) : (
@@ -139,7 +139,7 @@ export function CertificateQueueTab() {
             <TableBody>
               {(q.data ?? []).map((c) => {
                 const isBusy = !!sending[c.id];
-                const code = c.certificate_code ?? c.certificate_id ?? 'â€”';
+                const code = c.certificate_code ?? c.certificate_id ?? '-';
                 const status: EmailStatus = c.email_status ?? 'not_sent';
                 return (
                   <TableRow key={c.id} className={status === 'sent' ? 'opacity-60' : ''}>
@@ -149,10 +149,10 @@ export function CertificateQueueTab() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium">{c.recipient_name ?? 'â€”'}</div>
+                      <div className="font-medium">{c.recipient_name ?? '-'}</div>
                       <div className="text-xs text-muted-foreground">{c.recipient_email ?? 'No email address'}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{c.programme ?? 'â€”'}</TableCell>
+                    <TableCell className="text-sm">{c.programme ?? '-'}</TableCell>
                     <TableCell className="font-mono text-xs">{code}</TableCell>
                     <TableCell>
                       <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium ${STATUS_BADGE[status]}`}>
@@ -160,7 +160,7 @@ export function CertificateQueueTab() {
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {c.created_at ? new Date(c.created_at).toLocaleDateString() : 'â€”'}
+                      {c.created_at ? new Date(c.created_at).toLocaleDateString() : '-'}
                     </TableCell>
                     <TableCell className="text-right">
                       {status !== 'sent' ? (
@@ -176,7 +176,7 @@ export function CertificateQueueTab() {
                           ) : (
                             <Send className="h-3.5 w-3.5 mr-1" />
                           )}
-                          {isBusy ? 'Sendingâ€¦' : 'Send'}
+                          {isBusy ? 'Sending...' : 'Send'}
                         </Button>
                       ) : (
                         <span className="text-xs text-muted-foreground">Delivered</span>
@@ -197,5 +197,4 @@ export function CertificateQueueTab() {
     </div>
   );
 }
-
 

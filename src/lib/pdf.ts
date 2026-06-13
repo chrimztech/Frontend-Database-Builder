@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { verificationUrl } from "./cert";
 import { loadBranding } from "./branding";
 import { DEFAULT_LAYOUT, DEFAULT_LOGO_OVERLAY, mmToPt, type LayoutField, type TemplateLayout } from "./template-layout";
+import { registerCustomFontsInDoc } from "./font-loader";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 export interface CertificateInput {
@@ -12,6 +13,7 @@ export interface CertificateInput {
   programme: string;
   issueDate: string; // YYYY-MM-DD
   issuerName?: string; // back-compat; unused
+  nrcNumber?: string;
 }
 
 async function fetchAsDataUrl(url: string): Promise<string | null> {
@@ -70,6 +72,7 @@ function resolveText(f: LayoutField, cert: CertificateInput, settings: ReturnTyp
     case "programme":     return cert.programme;
     case "issueDate":     return formatDate(cert.issueDate);
     case "certificateId": return `ID: ${cert.certificateId}`;
+    case "nrcNumber":     return cert.nrcNumber ? `NRC: ${cert.nrcNumber}` : "";
     case "signature1Name":  return settings.signatory1_name;
     case "signature1Title": return settings.signatory1_title;
     case "signature2Name":  return settings.signatory2_name;
@@ -125,7 +128,11 @@ function drawField(
       const rawText = resolveText(f, cert, settings);
       if (rawText) {
         const text = applyTextTransform(rawText, f.textTransform);
-        doc.setFont(f.fontFamily ?? "helvetica", styleToJsPdf(f.fontStyle));
+        try {
+          doc.setFont(f.fontFamily ?? "helvetica", styleToJsPdf(f.fontStyle));
+        } catch {
+          doc.setFont("helvetica", "normal");
+        }
         doc.setFontSize(f.fontSize ?? 11);
         doc.setTextColor(...hexToRgb(f.color ?? "#282828"));
         if (f.letterSpacing) doc.setCharSpace(f.letterSpacing);
@@ -152,6 +159,12 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   const settings = branding?.settings ?? getDefaultSettings();
   const layout: TemplateLayout = branding?.layout ?? DEFAULT_LAYOUT;
   const overlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
+
+  // Register any custom (non-built-in) fonts used in this layout
+  const fontFamiliesUsed = layout.fields
+    .filter((f) => f.kind === "text" && f.visible && f.fontFamily)
+    .map((f) => f.fontFamily!);
+  await registerCustomFontsInDoc(doc, fontFamiliesUsed);
 
   // Background
   if (branding?.templateBgDataUrl) {

@@ -10,6 +10,7 @@ export type FieldId =
   | "programme"
   | "issueDate"
   | "certificateId"
+  | "nrcNumber"
   | "qr"
   | "seal"
   | "signature1Image"
@@ -21,7 +22,7 @@ export type FieldId =
 
 export type FieldKind = "text" | "image";
 
-export type FontFamily = "helvetica" | "times" | "courier";
+export type FontFamily = "helvetica" | "times" | "courier" | "cormorant" | "playfair" | "manrope" | "lato" | "cinzel";
 export type FontStyle = "normal" | "bold" | "italic" | "bolditalic";
 export type TextAlign = "left" | "center" | "right";
 
@@ -71,6 +72,7 @@ export const FIELD_LABELS: Record<FieldId, string> = {
   programme: "Programme",
   issueDate: "Issue date",
   certificateId: "Certificate ID",
+  nrcNumber: "NRC Number",
   qr: "QR code",
   seal: "Digital seal",
   signature1Image: "Signature 1 (image)",
@@ -86,6 +88,7 @@ export const FIELD_KINDS: Record<FieldId, FieldKind> = {
   programme: "text",
   issueDate: "text",
   certificateId: "text",
+  nrcNumber: "text",
   qr: "image",
   seal: "image",
   signature1Image: "image",
@@ -121,6 +124,7 @@ export const DEFAULT_LAYOUT: TemplateLayout = {
     { id: "signature2Title", kind: "text", visible: true, x: 122, y: 256, w: 70, h: 5, fontFamily: "helvetica", fontStyle: "normal", fontSize: 9, color: "#282828", align: "center" },
     { id: "qr",            kind: "image", visible: true, x: 91, y: 263, w: 28, h: 28 },
     { id: "certificateId", kind: "text", visible: true, x: 14, y: 290, w: 80, h: 5, fontFamily: "courier", fontStyle: "normal", fontSize: 8, color: "#0b1d3a", align: "left" },
+    { id: "nrcNumber",     kind: "text", visible: true, x: 116, y: 290, w: 80, h: 5, fontFamily: "courier", fontStyle: "normal", fontSize: 8, color: "#0b1d3a", align: "right" },
   ],
 };
 

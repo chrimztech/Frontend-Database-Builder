@@ -22,19 +22,26 @@ import {
 } from "@/lib/template-layout";
 import { loadBranding, saveTemplateLayout, clearBrandingCache } from "@/lib/branding";
 import { downloadCertificatePdf } from "@/lib/pdf";
+import { getCssFontFamily } from "@/lib/font-loader";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 const SAMPLE = {
-  certificateId: "WEB-2026-0001",
+  certificateId: "202606130000001",
   recipientName: "Jane Doe",
   programme: "Web Development Fundamentals",
   issueDate: "2026-06-13",
+  nrcNumber: "123456/78/9",
 };
 
 const FONTS: { value: NonNullable<LayoutField["fontFamily"]>; label: string }[] = [
-  { value: "helvetica", label: "Helvetica (sans-serif)" },
-  { value: "times", label: "Times (serif)" },
-  { value: "courier", label: "Courier (monospace)" },
+  { value: "helvetica", label: "Helvetica — sans-serif" },
+  { value: "times",     label: "Times — serif" },
+  { value: "courier",   label: "Courier — monospace" },
+  { value: "cormorant", label: "Cormorant Garamond — elegant serif" },
+  { value: "playfair",  label: "Playfair Display — formal serif" },
+  { value: "manrope",   label: "Manrope — modern sans" },
+  { value: "lato",      label: "Lato — clean sans" },
+  { value: "cinzel",    label: "Cinzel — Roman caps" },
 ];
 const STYLES: { value: NonNullable<LayoutField["fontStyle"]>; label: string }[] = [
   { value: "normal", label: "Normal" },
@@ -123,7 +130,7 @@ export function TemplateEditor() {
     })();
   }, []);
 
-  // â”€â”€ History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // History
   function syncUndoRedo() {
     setCanUndo(histIdxRef.current > 0);
     setCanRedo(histIdxRef.current < historyRef.current.length - 1);
@@ -187,7 +194,7 @@ export function TemplateEditor() {
     }
   }
 
-  // â”€â”€ Field add / delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Field add / delete
   function deleteField(id: string) {
     const current = layoutRef.current;
     pushLayout({ ...current, fields: current.fields.filter((f) => f.id !== id) });
@@ -228,7 +235,7 @@ export function TemplateEditor() {
     setSelected(id);
   }
 
-  // â”€â”€ Logo overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Logo overlay
   const logoOverlay: LogoOverlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
 
   function updateLogoOverlay(patch: Partial<LogoOverlay>) {
@@ -255,7 +262,7 @@ export function TemplateEditor() {
     return (Object.keys(FIELD_LABELS) as FieldId[]).filter((id) => !activeIds.has(id));
   }, [layout.fields]);
 
-  // â”€â”€ Quick alignment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Quick alignment
   function centerH() {
     if (!selectedField) return;
     updateField(selectedField.id, { x: (A4_MM.w - selectedField.w) / 2 });
@@ -265,7 +272,7 @@ export function TemplateEditor() {
     updateField(selectedField.id, { y: (A4_MM.h - selectedField.h) / 2 });
   }
 
-  // â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Keyboard shortcuts
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
@@ -289,7 +296,7 @@ export function TemplateEditor() {
     return () => window.removeEventListener("keydown", handler);
   }, [selected]);
 
-  // â”€â”€ Save / Reset / Preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Save / Reset / Preview
   async function onSave() {
     setSaving(true);
     try {
@@ -308,7 +315,7 @@ export function TemplateEditor() {
   }
 
   async function onPreviewPdf() {
-    toast.message("Generating preview PDFâ€¦");
+    toast.message("Generating preview PDF...");
     try {
       await saveTemplateLayout(layout);
       clearBrandingCache();
@@ -318,11 +325,11 @@ export function TemplateEditor() {
     }
   }
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading template editorâ€¦</div>;
+  if (loading) return <div className="text-sm text-muted-foreground">Loading template editor...</div>;
 
   return (
     <div className="space-y-6">
-      {/* â”€â”€ Toolbar â”€â”€ */}
+      {/* Toolbar */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p className="kicker">Template editor</p>
@@ -345,19 +352,19 @@ export function TemplateEditor() {
             <Download className="h-4 w-4 mr-1" /> Save & proof PDF
           </Button>
           <Button size="sm" onClick={onSave} disabled={saving}>
-            <Save className="h-4 w-4 mr-1" /> {saving ? "Savingâ€¦" : "Save layout"}
+            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save layout"}
           </Button>
         </div>
       </div>
 
       {!bgUrl && (
         <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
-          No certificate background uploaded yet â€” upload in the <span className="font-medium">Branding</span> tab.
+          No certificate background uploaded yet - upload in the <span className="font-medium">Branding</span> tab.
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-4">
-        {/* â”€â”€ Canvas â”€â”€ */}
+        {/* Canvas */}
         <div className="rounded-lg border bg-muted/20 overflow-hidden">
           <div className="flex items-center gap-3 px-3 py-2 border-b bg-card text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -379,7 +386,7 @@ export function TemplateEditor() {
             </div>
             {selected && selectedField && (
               <span className="text-muted-foreground ml-2 font-mono">
-                x:{selectedField.x.toFixed(1)} y:{selectedField.y.toFixed(1)} Â· {selectedField.w.toFixed(1)}Ã—{selectedField.h.toFixed(1)} mm
+                x:{selectedField.x.toFixed(1)} y:{selectedField.y.toFixed(1)} - {selectedField.w.toFixed(1)}x{selectedField.h.toFixed(1)} mm
               </span>
             )}
           </div>
@@ -436,7 +443,7 @@ export function TemplateEditor() {
           </div>
         </div>
 
-        {/* â”€â”€ Side panel â”€â”€ */}
+        {/* Side panel */}
         <ScrollArea className="rounded-lg border bg-card max-h-[82vh]">
           <div className="p-4 space-y-4">
 
@@ -556,7 +563,7 @@ export function TemplateEditor() {
               <p className="text-xs text-muted-foreground border-t pt-3">
                 Click a field on the canvas to edit it.
                 <br /><br />
-                <kbd className="px-1 rounded border text-[10px]">â†‘â†“â†â†’</kbd> Nudge 0.5mm &nbsp;
+                <kbd className="px-1 rounded border text-[10px]">arrow keys</kbd> Nudge 0.5mm &nbsp;
                 <kbd className="px-1 rounded border text-[10px]">Shift+arrow</kbd> 5mm &nbsp;
                 <kbd className="px-1 rounded border text-[10px]">Esc</kbd> Deselect
               </p>
@@ -568,16 +575,15 @@ export function TemplateEditor() {
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Draggable / resizable field box
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const PREVIEW_TEXT: Partial<Record<string, string>> = {
-  recipientName:  "Jane Doe",
-  programme:      "Web Development Fundamentals",
-  issueDate:      "June 13, 2026",
-  certificateId:  "ID: WEB-2026-0001",
-  qr:             "QR",
-  seal:           "SEAL",
+  recipientName:   "Jane Doe",
+  programme:       "Web Development Fundamentals",
+  issueDate:       "June 13, 2026",
+  certificateId:   "ID: 202606130000001",
+  nrcNumber:       "NRC: 123456/78/9",
+  qr:              "QR",
+  seal:            "SEAL",
   signature1Image: "SIG 1",
   signature1Name:  "Authorized Signatory",
   signature1Title: "Director",
@@ -683,7 +689,7 @@ function FieldBox({
           className="w-full h-full flex items-center pointer-events-none overflow-hidden"
           style={{
             color: field.color ?? "#282828",
-            fontFamily: field.fontFamily === "times" ? "Georgia, serif" : field.fontFamily === "courier" ? "ui-monospace, monospace" : "system-ui, sans-serif",
+            fontFamily: getCssFontFamily(field.fontFamily ?? "helvetica"),
             fontWeight: field.fontStyle === "bold" || field.fontStyle === "bolditalic" ? 700 : 400,
             fontStyle: field.fontStyle === "italic" || field.fontStyle === "bolditalic" ? "italic" : "normal",
             fontSize: Math.max(8, (field.fontSize ?? 11) * ptToPx(scale)),
@@ -707,12 +713,10 @@ function FieldBox({
   );
 }
 
-// 1pt â‰ˆ 0.353mm; scale is px/mm â†’ multiply to get px/pt
+// 1pt ~= 0.353mm; scale is px/mm -> multiply to get px/pt
 function ptToPx(scalePxPerMm: number) { return scalePxPerMm * 0.353; }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Right-panel field editor
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function FieldEditor({
   field, onChange, onDelete, onCenterH, onCenterV,
 }: {
@@ -902,4 +906,3 @@ function NumField({ label, value, min, max, onChange }: {
     </div>
   );
 }
-
