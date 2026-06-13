@@ -1,12 +1,27 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  LogOut, LayoutDashboard, Users, UserCircle, BookOpen,
-  ClipboardList, Award, Clock, Mail, BarChart2, Activity,
-  Palette, FileEdit, Settings, ShieldCheck, ChevronRight, Menu,
+  Activity,
+  Award,
+  BarChart2,
+  BookOpen,
+  ChevronRight,
+  ClipboardList,
+  FileEdit,
+  LayoutDashboard,
+  LogOut,
+  Mail,
+  Menu,
+  Palette,
+  Settings,
+  ShieldCheck,
+  UserCircle,
+  Users,
+  Clock,
 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { ORG_NAME } from "@/lib/cert";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
@@ -27,14 +42,31 @@ import { StudentProfilesTab } from "@/components/admin/student-profiles-tab";
 import { UsersTab } from "@/components/admin/users-tab";
 
 type SectionId =
-  | "overview" | "students" | "profiles" | "users"
-  | "courses" | "enrolments"
-  | "certificates" | "pending" | "email-queue"
-  | "reports" | "audit"
-  | "branding" | "template" | "settings";
+  | "overview"
+  | "students"
+  | "profiles"
+  | "users"
+  | "courses"
+  | "enrolments"
+  | "certificates"
+  | "pending"
+  | "email-queue"
+  | "reports"
+  | "audit"
+  | "branding"
+  | "template"
+  | "settings";
 
-type NavItem = { id: SectionId; icon: React.ComponentType<{ className?: string }>; label: string };
-type NavGroup = { label: string | null; items: NavItem[] };
+type NavItem = {
+  id: SectionId;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+};
+
+type NavGroup = {
+  label: string | null;
+  items: NavItem[];
+};
 
 const NAV: NavGroup[] = [
   {
@@ -44,58 +76,125 @@ const NAV: NavGroup[] = [
   {
     label: "People",
     items: [
-      { id: "students",  icon: Users,        label: "Students" },
-      { id: "profiles",  icon: UserCircle,   label: "Student profiles" },
-      { id: "users",     icon: ShieldCheck,  label: "Admin users" },
+      { id: "students", icon: Users, label: "Students" },
+      { id: "profiles", icon: UserCircle, label: "Student profiles" },
+      { id: "users", icon: ShieldCheck, label: "Admin users" },
     ],
   },
   {
     label: "Training",
     items: [
-      { id: "courses",     icon: BookOpen,      label: "Courses" },
-      { id: "enrolments",  icon: ClipboardList, label: "Enrolments" },
+      { id: "courses", icon: BookOpen, label: "Courses" },
+      { id: "enrolments", icon: ClipboardList, label: "Enrolments" },
     ],
   },
   {
     label: "Certificates",
     items: [
       { id: "certificates", icon: Award, label: "Certificates" },
-      { id: "pending",      icon: Clock, label: "Pending" },
-      { id: "email-queue",  icon: Mail,  label: "Email queue" },
+      { id: "pending", icon: Clock, label: "Pending" },
+      { id: "email-queue", icon: Mail, label: "Email queue" },
     ],
   },
   {
     label: "Insights",
     items: [
       { id: "reports", icon: BarChart2, label: "Reports" },
-      { id: "audit",   icon: Activity,  label: "Audit log" },
+      { id: "audit", icon: Activity, label: "Audit log" },
     ],
   },
   {
     label: "Configuration",
     items: [
-      { id: "branding",  icon: Palette,   label: "Branding" },
-      { id: "template",  icon: FileEdit,  label: "Template editor" },
-      { id: "settings",  icon: Settings,  label: "Settings" },
+      { id: "branding", icon: Palette, label: "Branding" },
+      { id: "template", icon: FileEdit, label: "Template editor" },
+      { id: "settings", icon: Settings, label: "Settings" },
     ],
   },
 ];
 
-const ALL_ITEMS = NAV.flatMap((g) => g.items);
+const SECTION_META: Record<
+  SectionId,
+  { eyebrow: string; description: string }
+> = {
+  overview: {
+    eyebrow: "Dashboard",
+    description:
+      "Track students, enrolments, certificate output, and delivery activity from one place.",
+  },
+  students: {
+    eyebrow: "People",
+    description: "Manage student records, identity data, and enrolment readiness.",
+  },
+  profiles: {
+    eyebrow: "People",
+    description: "Review fuller student profiles and supporting registration details.",
+  },
+  users: {
+    eyebrow: "Security",
+    description: "Control which staff members can access and operate the admin portal.",
+  },
+  courses: {
+    eyebrow: "Training",
+    description: "Define the training catalogue and certificate-ready course metadata.",
+  },
+  enrolments: {
+    eyebrow: "Training",
+    description: "Monitor enrolment progress and prepare completions for certification.",
+  },
+  certificates: {
+    eyebrow: "Certificates",
+    description: "Review issued records, certificate status, and generated outputs.",
+  },
+  pending: {
+    eyebrow: "Certificates",
+    description: "Process certificate work that still needs review or generation.",
+  },
+  "email-queue": {
+    eyebrow: "Certificates",
+    description: "Manage outbound certificate delivery and follow up on pending messages.",
+  },
+  reports: {
+    eyebrow: "Insights",
+    description: "Inspect operational summaries and reporting across the certificate workflow.",
+  },
+  audit: {
+    eyebrow: "Insights",
+    description: "Trace administrative activity and system events for accountability.",
+  },
+  branding: {
+    eyebrow: "Configuration",
+    description: "Adjust brand assets, appearance, and organisation-facing presentation.",
+  },
+  template: {
+    eyebrow: "Configuration",
+    description: "Edit the certificate template experience used for document output.",
+  },
+  settings: {
+    eyebrow: "Configuration",
+    description: "Maintain system-level defaults, behaviours, and supporting options.",
+  },
+};
+
+const ALL_ITEMS = NAV.flatMap((group) => group.items);
+
 function getLabel(id: string) {
-  return ALL_ITEMS.find((i) => i.id === id)?.label ?? id;
+  return ALL_ITEMS.find((item) => item.id === id)?.label ?? id;
 }
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
-    meta: [{ title: `Admin — ${ORG_NAME}` }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: `Admin - ${ORG_NAME}` },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: AdminPage,
 });
 
 function AdminPage() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<{ email?: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [section, setSection] = useState<SectionId>("overview");
@@ -103,22 +202,31 @@ function AdminPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       setUser(user);
-      if (!user) return;
+
+      if (!user) {
+        setIsAdmin(false);
+        return;
+      }
+
       const { data } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
         .eq("role", "admin")
         .maybeSingle();
-      setIsAdmin(!!data);
+
+      setIsAdmin(Boolean(data));
     })();
   }, []);
 
   async function signOut() {
-    await qc.cancelQueries();
-    qc.clear();
+    await queryClient.cancelQueries();
+    queryClient.clear();
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -128,147 +236,208 @@ function AdminPage() {
     setDrawerOpen(false);
   }
 
-  if (isAdmin === false) {
+  if (isAdmin === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-        <div className="max-w-md text-center">
-          <h1 className="text-2xl font-display">Not authorised</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your account ({user?.email}) doesn't have admin access. Ask an existing admin to grant
-            you the <code className="mx-1 rounded bg-muted px-1">admin</code> role.
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="surface-panel max-w-md rounded-[1.75rem] px-8 py-10 text-center">
+          <p className="kicker">Loading Admin</p>
+          <h1 className="mt-3 text-2xl text-foreground">Preparing your workspace</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            We are checking your access level and loading the certificate operations
+            environment.
           </p>
-          <button
-            onClick={signOut}
-            className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors"
-          >
-            <LogOut className="h-4 w-4" /> Sign out
-          </button>
         </div>
       </div>
     );
   }
 
-  const sidebarContent = (
-    <div className="flex flex-col h-full" style={{ background: "var(--navy)", color: "var(--navy-foreground)" }}>
-      {/* Brand */}
-      <Link
-        to="/"
-        className="flex items-center gap-3 px-5 py-5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
-      >
-        <img src={unzaLogo.url} alt="UNZA" className="h-9 w-9 object-contain" />
-        <div className="leading-tight">
-          <p className="text-xs font-semibold tracking-widest uppercase opacity-50">UNZA</p>
-          <p className="font-display text-sm font-semibold">TeLS Admin</p>
+  if (isAdmin === false) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="surface-panel max-w-md rounded-[1.75rem] px-8 py-10 text-center">
+          <p className="kicker">Access Restricted</p>
+          <h1 className="mt-3 text-2xl text-foreground">Not authorised</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Your account ({user?.email}) does not currently have admin access. Ask an
+            existing administrator to grant the <code className="rounded bg-muted px-1">admin</code> role.
+          </p>
+          <Button className="mt-6" variant="outline" onClick={signOut}>
+            <LogOut className="mr-1 h-4 w-4" />
+            Sign out
+          </Button>
         </div>
-      </Link>
+      </div>
+    );
+  }
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-        {NAV.map((group, gi) => (
-          <div key={gi}>
-            {group.label && (
-              <p className="px-2 mb-1.5 text-xs font-semibold uppercase tracking-widest opacity-40">
-                {group.label}
+  const currentMeta = SECTION_META[section];
+  const userInitial = (user?.email?.[0] ?? "A").toUpperCase();
+  const templateMode = section === "template";
+
+  const sidebarContent = (
+    <div className="surface-panel-strong relative flex h-full flex-col overflow-hidden text-navy-foreground">
+      <div className="mesh-overlay absolute inset-0 opacity-25" />
+      <div className="absolute -right-16 top-10 h-40 w-40 rounded-full bg-gold/16 blur-3xl" />
+
+      <div className="relative flex h-full flex-col">
+        <Link
+          to="/"
+          className="flex items-center gap-3 border-b border-white/10 px-5 py-5"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/14 bg-white/10 backdrop-blur-sm">
+            <img src={unzaLogo.url} alt="UNZA" className="h-9 w-9 object-contain" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">
+              Certificate Operations
+            </p>
+            <p className="truncate font-display text-lg text-white">{ORG_NAME}</p>
+          </div>
+        </Link>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          {NAV.map((group) => (
+            <div key={group.label ?? "overview"} className="mb-5 last:mb-0">
+              {group.label && (
+                <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">
+                  {group.label}
+                </p>
+              )}
+              <ul className="space-y-1">
+                {group.items.map((item) => {
+                  const active = section === item.id;
+
+                  return (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => go(item.id)}
+                        className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all ${
+                          active
+                            ? "bg-white text-foreground shadow-[var(--shadow-soft)]"
+                            : "text-white/72 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                            active
+                              ? "bg-primary/8 text-primary"
+                              : "bg-white/8 text-white/60 group-hover:text-white"
+                          }`}
+                        >
+                          <item.icon className="h-4 w-4" />
+                        </div>
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {active && <ChevronRight className="h-4 w-4 text-primary/65" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        <div className="border-t border-white/10 px-4 py-4">
+          <div className="flex items-center gap-3 rounded-[1.35rem] border border-white/10 bg-white/7 px-3 py-3 backdrop-blur-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gold/20 text-sm font-bold text-gold">
+              {userInitial}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                Signed in
               </p>
-            )}
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const active = section === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      onClick={() => go(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                        active
-                          ? "bg-gold text-gold-foreground font-semibold"
-                          : "text-white/60 hover:bg-white/10 hover:text-white"
-                      }`}
-                    >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      <span className="flex-1 text-left">{item.label}</span>
-                      {active && <ChevronRight className="h-3.5 w-3.5 opacity-60" />}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+              <p className="truncate text-sm text-white/75">{user?.email}</p>
+            </div>
+            <button
+              onClick={signOut}
+              title="Sign out"
+              className="rounded-xl p-2 text-white/55 hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
-        ))}
-      </nav>
-
-      {/* User footer */}
-      <div className="shrink-0 px-4 py-4" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold uppercase shrink-0"
-            style={{ background: "rgba(201,164,76,0.2)", color: "var(--gold)" }}
-          >
-            {user?.email?.[0] ?? "A"}
-          </div>
-          <p className="flex-1 min-w-0 text-xs text-white/50 truncate">{user?.email}</p>
-          <button
-            onClick={signOut}
-            title="Sign out"
-            className="p-1.5 rounded text-white/40 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         </div>
       </div>
     </div>
   );
 
   return (
-    <div className="flex min-h-screen bg-muted/40">
-      {/* Desktop sidebar — fixed */}
-      <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 z-30 shadow-lg">
+    <div className="relative flex min-h-screen">
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_right,rgba(15,80,54,0.09),transparent_26rem)]" />
+
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 md:flex">
         {sidebarContent}
       </aside>
 
-      {/* Mobile drawer overlay */}
       {drawerOpen && (
-        <div className="md:hidden fixed inset-0 z-40 flex">
+        <div className="fixed inset-0 z-40 flex md:hidden">
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/45 backdrop-blur-sm"
             onClick={() => setDrawerOpen(false)}
           />
-          <aside className="relative flex flex-col w-64 z-50 shadow-2xl">
-            {sidebarContent}
-          </aside>
+          <aside className="relative z-10 h-full w-72">{sidebarContent}</aside>
         </div>
       )}
 
-      {/* Main area */}
-      <div className="flex flex-col flex-1 md:ml-64 min-h-screen">
-        {/* Sticky topbar */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 px-6 py-4 bg-background/90 backdrop-blur border-b">
-          <button
-            className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-muted transition-colors"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <h1 className="font-display text-xl tracking-tight">{getLabel(section)}</h1>
+      <div className="flex min-h-screen flex-1 flex-col md:ml-72">
+        <header className="sticky top-0 z-20 border-b border-white/60 bg-background/82 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <button
+                className="rounded-xl border border-border/70 bg-white/70 p-2 shadow-[var(--shadow-soft)] backdrop-blur-sm md:hidden"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+
+              <div>
+                <p className="kicker">{currentMeta.eyebrow}</p>
+                <h1 className="mt-1 text-2xl text-foreground">{getLabel(section)}</h1>
+                <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
+                  {currentMeta.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="hidden items-center gap-3 lg:flex">
+              <Link
+                to="/"
+                className="text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                Public verification
+              </Link>
+              <div className="rounded-full border border-border/80 bg-white/74 px-4 py-2 shadow-[var(--shadow-soft)]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Active user
+                </p>
+                <p className="text-sm font-semibold text-foreground">{user?.email}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={signOut}>
+                <LogOut className="mr-1 h-4 w-4" />
+                Sign out
+              </Button>
+            </div>
+          </div>
         </header>
 
-        {/* Page content */}
-        <main className={`flex-1 ${section === "template" ? "px-4 py-4" : "px-6 py-8"}`}>
-          {section === "overview"    && <OverviewTab />}
-          {section === "students"    && <StudentsTab />}
-          {section === "profiles"    && <StudentProfilesTab />}
-          {section === "courses"     && <CoursesTab />}
-          {section === "enrolments"  && <EnrolmentsTab />}
-          {section === "certificates"&& <CertificatesTab />}
-          {section === "pending"     && <PendingCertificatesTab />}
-          {section === "email-queue" && <CertificateQueueTab />}
-          {section === "reports"     && <ReportsTab />}
-          {section === "audit"       && <AuditLogTab />}
-          {section === "branding"    && <BrandingTab />}
-          {section === "template"    && <TemplateEditor />}
-          {section === "users"       && <UsersTab />}
-          {section === "settings"    && <SettingsTab />}
+        <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">
+          <div className={templateMode ? "" : "mx-auto max-w-7xl"}>
+            {section === "overview" && <OverviewTab />}
+            {section === "students" && <StudentsTab />}
+            {section === "profiles" && <StudentProfilesTab />}
+            {section === "courses" && <CoursesTab />}
+            {section === "enrolments" && <EnrolmentsTab />}
+            {section === "certificates" && <CertificatesTab />}
+            {section === "pending" && <PendingCertificatesTab />}
+            {section === "email-queue" && <CertificateQueueTab />}
+            {section === "reports" && <ReportsTab />}
+            {section === "audit" && <AuditLogTab />}
+            {section === "branding" && <BrandingTab />}
+            {section === "template" && <TemplateEditor />}
+            {section === "users" && <UsersTab />}
+            {section === "settings" && <SettingsTab />}
+          </div>
         </main>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -70,16 +70,16 @@ export function AuditLogTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-display">Audit log</h2>
+          <p className="kicker">Audit log</p>
           <p className="text-sm text-muted-foreground">
-            Every admin action on student records — view, create, update, delete. Read-only and append-only.
+            Every admin action on student records â€” view, create, update, delete. Read-only and append-only.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="w-56" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Searchâ€¦" className="w-56" />
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className="h-4 w-4 mr-1" /> Refresh
           </Button>
@@ -89,7 +89,7 @@ export function AuditLogTab() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="surface-panel rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs uppercase">
             <tr>
@@ -102,7 +102,7 @@ export function AuditLogTab() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">Loading…</td></tr>
+              <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">Loadingâ€¦</td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No entries yet.</td></tr>
             ) : (
@@ -110,9 +110,9 @@ export function AuditLogTab() {
                 <tr key={r.id} className="border-t">
                   <td className="p-2 whitespace-nowrap text-xs">{new Date(r.created_at).toLocaleString()}</td>
                   <td className="p-2"><span className="rounded bg-muted px-1.5 py-0.5 text-xs">{r.action}</span></td>
-                  <td className="p-2">{r.students?.full_name ?? <span className="text-muted-foreground">—</span>}</td>
+                  <td className="p-2">{r.students?.full_name ?? <span className="text-muted-foreground">â€”</span>}</td>
                   <td className="p-2 text-xs text-muted-foreground max-w-md truncate">{r.detail}</td>
-                  <td className="p-2 text-xs font-mono text-muted-foreground">{r.actor_id?.slice(0, 8) ?? "—"}</td>
+                  <td className="p-2 text-xs font-mono text-muted-foreground">{r.actor_id?.slice(0, 8) ?? "â€”"}</td>
                 </tr>
               ))
             )}
@@ -122,3 +122,5 @@ export function AuditLogTab() {
     </div>
   );
 }
+
+

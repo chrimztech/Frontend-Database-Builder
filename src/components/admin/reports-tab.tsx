@@ -1,14 +1,42 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Download, TrendingUp, Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from "recharts";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  AdminEmptyState,
+  AdminPageHeader,
+  AdminPanel,
+  AdminStat,
+} from "@/components/admin/admin-ui";
 
 type StudentRow = { id: string; category: string | null; created_at: string };
 type CourseRow = { id: string; name: string; code: string | null; category: string | null };
-type EnrolmentRow = { id: string; status: string | null; payment_status: string | null; fee_charged: number | null; course_id: string; created_at: string };
+type EnrolmentRow = {
+  id: string;
+  status: string | null;
+  payment_status: string | null;
+  fee_charged: number | null;
+  course_id: string;
+  created_at: string;
+};
 type CertRow = { id: string; issue_date: string | null; course_id: string | null };
+
+const CHART_GRID = "color-mix(in oklab, var(--border) 68%, transparent)";
+const CHART_PRIMARY = "var(--primary)";
+const CHART_ACCENT = "var(--gold)";
 
 export function ReportsTab() {
   const [students, setStudents] = useState<StudentRow[]>([]);
@@ -20,36 +48,54 @@ export function ReportsTab() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [s, c, e, cert] = await Promise.all([
-        supabase.from("students").select("id, category, created_at"),
-        supabase.from("courses").select("id, name, code, category"),
-        supabase.from("enrolments").select("id, status, payment_status, fee_charged, course_id, created_at"),
-        supabase.from("certificates").select("id, issue_date, course_id"),
-      ]);
-      if (s.error || c.error || e.error || cert.error) {
-        toast.error((s.error || c.error || e.error || cert.error)!.message);
+      const [studentResult, courseResult, enrolmentResult, certResult] =
+        await Promise.all([
+          supabase.from("students").select("id, category, created_at"),
+          supabase.from("courses").select("id, name, code, category"),
+          supabase
+            .from("enrolments")
+            .select("id, status, payment_status, fee_charged, course_id, created_at"),
+          supabase.from("certificates").select("id, issue_date, course_id"),
+        ]);
+
+      if (
+        studentResult.error ||
+        courseResult.error ||
+        enrolmentResult.error ||
+        certResult.error
+      ) {
+        toast.error(
+          (
+            studentResult.error ||
+            courseResult.error ||
+            enrolmentResult.error ||
+            certResult.error
+          )!.message,
+        );
       }
-      setStudents((s.data as any) ?? []);
-      setCourses((c.data as any) ?? []);
-      setEnrolments((e.data as any) ?? []);
-      setCerts((cert.data as any) ?? []);
+
+      setStudents((studentResult.data as StudentRow[]) ?? []);
+      setCourses((courseResult.data as CourseRow[]) ?? []);
+      setEnrolments((enrolmentResult.data as EnrolmentRow[]) ?? []);
+      setCerts((certResult.data as CertRow[]) ?? []);
       setLoading(false);
     })();
   }, []);
 
   const kpi = useMemo(() => {
     const totalRevenue = enrolments
-      .filter((x) => x.payment_status === "paid")
-      .reduce((sum, x) => sum + Number(x.fee_charged ?? 0), 0);
+      .filter((row) => row.payment_status === "paid")
+      .reduce((sum, row) => sum + Number(row.fee_charged ?? 0), 0);
     const pendingRevenue = enrolments
-      .filter((x) => x.payment_status === "pending")
-      .reduce((sum, x) => sum + Number(x.fee_charged ?? 0), 0);
+      .filter((row) => row.payment_status === "pending")
+      .reduce((sum, row) => sum + Number(row.fee_charged ?? 0), 0);
+
     return {
       students: students.length,
-      unza: students.filter((s) => s.category === "unza").length,
-      nonUnza: students.filter((s) => s.category !== "unza").length,
+      unza: students.filter((student) => student.category === "unza").length,
+      nonUnza: students.filter((student) => student.category !== "unza").length,
       enrolments: enrolments.length,
-      completed: enrolments.filter((e) => e.status === "completed").length,
+      completed: enrolments.filter((row) => row.status === "completed").length,
       certificates: certs.length,
       totalRevenue,
       pendingRevenue,
@@ -57,27 +103,85 @@ export function ReportsTab() {
   }, [students, enrolments, certs]);
 
   const byCourse = useMemo(() => {
-    const map = new Map<string, { name: string; enrolments: number; certificates: number }>();
-    courses.forEach((c) => map.set(c.id, { name: c.code ?? c.name.slice(0, 20), enrolments: 0, certificates: 0 }));
-    enrolments.forEach((e) => { const m = map.get(e.course_id); if (m) m.enrolments++; });
-    certs.forEach((c) => { if (c.course_id) { const m = map.get(c.course_id); if (m) m.certificates++; } });
-    return [...map.values()].filter((m) => m.enrolments > 0 || m.certificates > 0);
+    const map = new Map<
+      string,
+      { name: string; enrolments: number; certificates: number }
+    >();
+
+    courses.forEach((course) => {
+      map.set(course.id, {
+        name: course.code ?? course.name.slice(0, 20),
+        enrolments: 0,
+        certificates: 0,
+      });
+    });
+
+    enrolments.forEach((row) => {
+      const course = map.get(row.course_id);
+      if (course) {
+        course.enrolments += 1;
+      }
+    });
+
+    certs.forEach((row) => {
+      if (!row.course_id) {
+        return;
+      }
+
+      const course = map.get(row.course_id);
+      if (course) {
+        course.certificates += 1;
+      }
+    });
+
+    return [...map.values()].filter(
+      (course) => course.enrolments > 0 || course.certificates > 0,
+    );
   }, [courses, enrolments, certs]);
 
   const monthly = useMemo(() => {
-    const m = new Map<string, { month: string; certificates: number; enrolments: number }>();
-    function bucket(d: string | null) { return d ? d.slice(0, 7) : null; }
-    enrolments.forEach((e) => {
-      const k = bucket(e.created_at); if (!k) return;
-      const row = m.get(k) ?? { month: k, certificates: 0, enrolments: 0 };
-      row.enrolments++; m.set(k, row);
+    const map = new Map<
+      string,
+      { month: string; certificates: number; enrolments: number }
+    >();
+
+    function bucket(value: string | null) {
+      return value ? value.slice(0, 7) : null;
+    }
+
+    enrolments.forEach((row) => {
+      const month = bucket(row.created_at);
+      if (!month) {
+        return;
+      }
+
+      const current = map.get(month) ?? {
+        month,
+        certificates: 0,
+        enrolments: 0,
+      };
+      current.enrolments += 1;
+      map.set(month, current);
     });
-    certs.forEach((c) => {
-      const k = bucket(c.issue_date); if (!k) return;
-      const row = m.get(k) ?? { month: k, certificates: 0, enrolments: 0 };
-      row.certificates++; m.set(k, row);
+
+    certs.forEach((row) => {
+      const month = bucket(row.issue_date);
+      if (!month) {
+        return;
+      }
+
+      const current = map.get(month) ?? {
+        month,
+        certificates: 0,
+        enrolments: 0,
+      };
+      current.certificates += 1;
+      map.set(month, current);
     });
-    return [...m.values()].sort((a, b) => a.month.localeCompare(b.month));
+
+    return [...map.values()].sort((left, right) =>
+      left.month.localeCompare(right.month),
+    );
   }, [enrolments, certs]);
 
   function exportCsv() {
@@ -93,95 +197,196 @@ export function ReportsTab() {
       ["revenue_pending", kpi.pendingRevenue],
       [],
       ["course", "enrolments", "certificates"],
-      ...byCourse.map((c) => [c.name, c.enrolments, c.certificates]),
+      ...byCourse.map((course) => [
+        course.name,
+        course.enrolments,
+        course.certificates,
+      ]),
     ];
-    const csv = rows.map((r) => r.map((v) => `"${String(v ?? "")}"`).join(",")).join("\n");
+
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value ?? "")}"`).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `reports-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `reports-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading reports…</div>;
+  if (loading) {
+    return (
+      <AdminPanel className="p-8">
+        <div className="text-sm text-muted-foreground">Loading reports...</div>
+      </AdminPanel>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-display">Reports</h2>
-          <p className="text-sm text-muted-foreground">Snapshot of students, enrolments, certificates and revenue.</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={exportCsv}>
-          <Download className="h-4 w-4 mr-1" /> Export CSV
-        </Button>
+    <div className="space-y-8">
+      <AdminPageHeader
+        eyebrow="Insights"
+        title="Operational reports"
+        description="Review learner volume, course demand, certificates issued, and revenue flow across the training pipeline."
+        actions={
+          <Button variant="outline" onClick={exportCsv}>
+            <Download className="mr-1 h-4 w-4" />
+            Export CSV
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminStat
+          label="Students"
+          value={kpi.students}
+          hint={`${kpi.unza} UNZA / ${kpi.nonUnza} non-UNZA`}
+        />
+        <AdminStat
+          label="Enrolments"
+          value={kpi.enrolments}
+          hint={`${kpi.completed} completed and ready for next-step review`}
+        />
+        <AdminStat
+          label="Certificates"
+          value={kpi.certificates}
+          hint="Issued certificate records currently in the registry"
+        />
+        <AdminStat
+          label="Revenue"
+          value={`K${kpi.totalRevenue.toLocaleString()}`}
+          hint={`K${kpi.pendingRevenue.toLocaleString()} still pending`}
+        />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Students" value={kpi.students} hint={`${kpi.unza} UNZA · ${kpi.nonUnza} non-UNZA`} />
-        <Kpi label="Enrolments" value={kpi.enrolments} hint={`${kpi.completed} completed`} />
-        <Kpi label="Certificates" value={kpi.certificates} />
-        <Kpi label="Revenue (paid)" value={kpi.totalRevenue.toLocaleString()} hint={`${kpi.pendingRevenue.toLocaleString()} pending`} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Enrolments & certificates per course">
-          {byCourse.length === 0 ? (
-            <Empty />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={byCourse}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="name" fontSize={11} />
-                <YAxis fontSize={11} />
-                <Tooltip />
-                <Bar dataKey="enrolments" fill="hsl(var(--primary))" />
-                <Bar dataKey="certificates" fill="hsl(var(--accent))" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        <ChartCard title="Activity by month">
+      <div className="grid gap-6 xl:grid-cols-[1.06fr_0.94fr]">
+        <ChartPanel
+          title="Activity by month"
+          description="A quick read on how enrolment intake and certificate issuance are moving over time."
+        >
           {monthly.length === 0 ? (
-            <Empty />
+            <AdminEmptyState
+              icon={TrendingUp}
+              title="No activity yet"
+              description="Monthly charts will appear once enrolments and certificates start accumulating."
+              className="min-h-[320px]"
+            />
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={monthly}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="month" fontSize={11} />
-                <YAxis fontSize={11} />
-                <Tooltip />
-                <Line type="monotone" dataKey="enrolments" stroke="hsl(var(--primary))" />
-                <Line type="monotone" dataKey="certificates" stroke="hsl(var(--accent))" />
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={monthly} margin={{ left: 4, right: 12, top: 8 }}>
+                <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" />
+                <XAxis dataKey="month" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "1rem",
+                    border: "1px solid color-mix(in oklab, var(--border) 78%, white 22%)",
+                    boxShadow: "var(--shadow-soft)",
+                    background: "rgb(255 255 255 / 0.94)",
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="enrolments"
+                  stroke={CHART_PRIMARY}
+                  strokeWidth={3}
+                  dot={{ fill: CHART_PRIMARY, strokeWidth: 0, r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="certificates"
+                  stroke={CHART_ACCENT}
+                  strokeWidth={3}
+                  dot={{ fill: CHART_ACCENT, strokeWidth: 0, r: 3 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
-        </ChartCard>
+        </ChartPanel>
+
+        <AdminPanel className="p-6 sm:p-7">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/8 text-primary">
+              <Wallet className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="kicker">Commercial Snapshot</p>
+              <h3 className="mt-2 text-3xl text-foreground">Revenue posture</h3>
+              <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                Paid revenue reflects confirmed collections, while pending revenue
+                highlights cash still tied up in incomplete payment follow-up.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <AdminStat
+              label="Paid"
+              value={`K${kpi.totalRevenue.toLocaleString()}`}
+              hint="Revenue from enrolments marked as paid"
+            />
+            <AdminStat
+              label="Pending"
+              value={`K${kpi.pendingRevenue.toLocaleString()}`}
+              hint="Potential revenue still awaiting settlement"
+            />
+          </div>
+        </AdminPanel>
       </div>
+
+      <ChartPanel
+        title="Enrolments and certificates by course"
+        description="Use this view to spot courses with strong intake, low completion flow, or high certificate output."
+      >
+        {byCourse.length === 0 ? (
+          <AdminEmptyState
+            title="No course activity yet"
+            description="Course-level reporting will appear after enrolments or certificates are recorded."
+            className="min-h-[320px]"
+          />
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={byCourse} margin={{ left: 4, right: 12, top: 8 }}>
+              <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" />
+              <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: "1rem",
+                  border: "1px solid color-mix(in oklab, var(--border) 78%, white 22%)",
+                  boxShadow: "var(--shadow-soft)",
+                  background: "rgb(255 255 255 / 0.94)",
+                }}
+              />
+              <Bar dataKey="enrolments" fill={CHART_PRIMARY} radius={[8, 8, 0, 0]} />
+              <Bar dataKey="certificates" fill={CHART_ACCENT} radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </ChartPanel>
     </div>
   );
 }
 
-function Kpi({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+function ChartPanel({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="text-xs uppercase text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-display">{value}</div>
-      {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
-    </div>
+    <AdminPanel className="p-6 sm:p-7">
+      <div className="max-w-2xl">
+        <p className="kicker">Report View</p>
+        <h3 className="mt-2 text-2xl text-foreground">{title}</h3>
+        <p className="mt-3 text-sm leading-7 text-muted-foreground">{description}</p>
+      </div>
+      <div className="mt-6">{children}</div>
+    </AdminPanel>
   );
-}
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <h3 className="text-sm font-medium mb-2">{title}</h3>
-      {children}
-    </div>
-  );
-}
-function Empty() {
-  return <div className="h-[260px] flex items-center justify-center text-xs text-muted-foreground">No data yet</div>;
 }

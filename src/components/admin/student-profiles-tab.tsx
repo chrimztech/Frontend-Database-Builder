@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowRight, Search, Tag, UserCheck } from "lucide-react";
@@ -209,7 +209,7 @@ export function StudentProfilesTab() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <div className="space-y-4">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Student intelligence</CardTitle>
@@ -220,7 +220,7 @@ export function StudentProfilesTab() {
               <Label>Search student metadata</Label>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input className="pl-10" placeholder="Search students…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input className="pl-10" placeholder="Search studentsâ€¦" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-sm text-muted-foreground">
@@ -276,7 +276,7 @@ export function StudentProfilesTab() {
         </Card>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Profile details</CardTitle>
@@ -286,7 +286,7 @@ export function StudentProfilesTab() {
             {!selected ? (
               <div className="text-sm text-muted-foreground">Select a student to begin.</div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <Card className="border-dashed border-slate-200">
                     <CardHeader className="space-y-2">
@@ -296,13 +296,13 @@ export function StudentProfilesTab() {
                     <CardContent className="space-y-2 text-sm text-muted-foreground">
                       <div>
                         <Label className="text-xs">Primary email</Label>
-                        <div className="text-sm">{selected.email ?? "—"}</div>
+                        <div className="text-sm">{selected.email ?? "â€”"}</div>
                       </div>
                       <div>
                         <Label className="text-xs">Primary phone</Label>
-                        <div className="text-sm">{selected.phone ?? "—"}</div>
+                        <div className="text-sm">{selected.phone ?? "â€”"}</div>
                       </div>
-                      <div>ID: {selected.category === "unza" ? selected.unza_student_id ?? "—" : selected.national_id ?? "—"}</div>
+                      <div>ID: {selected.category === "unza" ? selected.unza_student_id ?? "â€”" : selected.national_id ?? "â€”"}</div>
                     </CardContent>
                   </Card>
                   <Card className="border-dashed border-slate-200">
@@ -318,7 +318,7 @@ export function StudentProfilesTab() {
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     <div>
                       <Label htmlFor="primaryEmail">Primary email</Label>
                       <Input id="primaryEmail" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -366,7 +366,7 @@ export function StudentProfilesTab() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     <div>
                       <Label htmlFor="employer">Employer</Label>
                       <Input id="employer" value={employer} onChange={(e) => setEmployer(e.target.value)} placeholder="Employer or organisation" />
@@ -402,7 +402,7 @@ export function StudentProfilesTab() {
               <Tag className="h-4 w-4" /> Rich metadata enables deeper student insights.
             </div>
             <Button onClick={saveProfile} disabled={!selected || busy}>
-              {busy ? "Saving…" : "Save profile"}
+              {busy ? "Savingâ€¦" : "Save profile"}
             </Button>
           </CardFooter>
         </Card>
@@ -428,7 +428,7 @@ export function StudentProfilesTab() {
                 <div className="font-semibold">Registered courses</div>
                 <div className="mt-2 text-sm">
                   {enrolmentsQuery.isLoading ? (
-                    <div className="text-muted-foreground">Loading…</div>
+                    <div className="text-muted-foreground">Loadingâ€¦</div>
                   ) : (enrolmentsQuery.data ?? []).length === 0 ? (
                     <div className="text-muted-foreground">No enrolments</div>
                   ) : (
@@ -437,7 +437,7 @@ export function StudentProfilesTab() {
                         <div key={e.id} className="flex items-center justify-between">
                           <div>
                             <div className="font-medium">{e.courses?.name ?? e.course_id}</div>
-                            <div className="text-xs text-muted-foreground">{e.courses?.code ?? ""} · {e.status}</div>
+                            <div className="text-xs text-muted-foreground">{e.courses?.code ?? ""} Â· {e.status}</div>
                           </div>
                           <div className="text-xs text-muted-foreground">{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString() : ''}</div>
                         </div>
@@ -461,3 +461,4 @@ export function StudentProfilesTab() {
     </div>
   );
 }
+

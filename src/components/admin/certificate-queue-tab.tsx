@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Send, RefreshCw } from 'lucide-react';
@@ -79,7 +79,7 @@ export function CertificateQueueTab() {
     setSelected({});
     refresh();
     if (ok > 0) toast.success(`Sent ${ok} certificate${ok !== 1 ? 's' : ''}`);
-    if (fail > 0) toast.error(`${fail} failed — check those rows`);
+    if (fail > 0) toast.error(`${fail} failed â€” check those rows`);
   }
 
   const unsent = (q.data ?? []).filter((c) => c.email_status !== 'sent');
@@ -91,10 +91,10 @@ export function CertificateQueueTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-display">Certificate queue</h2>
+          <p className="kicker">Certificate queue</p>
           <p className="text-sm text-muted-foreground">
             Send certificates to students by email from <strong>train@unza.ac.zm</strong>.
             The PDF is attached automatically.
@@ -116,9 +116,9 @@ export function CertificateQueueTab() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="surface-panel rounded-xl overflow-hidden">
         {q.isLoading ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">Loading…</div>
+          <div className="p-10 text-center text-sm text-muted-foreground">Loadingâ€¦</div>
         ) : (q.data ?? []).length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">No certificates found.</div>
         ) : (
@@ -139,7 +139,7 @@ export function CertificateQueueTab() {
             <TableBody>
               {(q.data ?? []).map((c) => {
                 const isBusy = !!sending[c.id];
-                const code = c.certificate_code ?? c.certificate_id ?? '—';
+                const code = c.certificate_code ?? c.certificate_id ?? 'â€”';
                 const status: EmailStatus = c.email_status ?? 'not_sent';
                 return (
                   <TableRow key={c.id} className={status === 'sent' ? 'opacity-60' : ''}>
@@ -149,10 +149,10 @@ export function CertificateQueueTab() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium">{c.recipient_name ?? '—'}</div>
+                      <div className="font-medium">{c.recipient_name ?? 'â€”'}</div>
                       <div className="text-xs text-muted-foreground">{c.recipient_email ?? 'No email address'}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{c.programme ?? '—'}</TableCell>
+                    <TableCell className="text-sm">{c.programme ?? 'â€”'}</TableCell>
                     <TableCell className="font-mono text-xs">{code}</TableCell>
                     <TableCell>
                       <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium ${STATUS_BADGE[status]}`}>
@@ -160,7 +160,7 @@ export function CertificateQueueTab() {
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {c.created_at ? new Date(c.created_at).toLocaleDateString() : '—'}
+                      {c.created_at ? new Date(c.created_at).toLocaleDateString() : 'â€”'}
                     </TableCell>
                     <TableCell className="text-right">
                       {status !== 'sent' ? (
@@ -176,7 +176,7 @@ export function CertificateQueueTab() {
                           ) : (
                             <Send className="h-3.5 w-3.5 mr-1" />
                           )}
-                          {isBusy ? 'Sending…' : 'Send'}
+                          {isBusy ? 'Sendingâ€¦' : 'Send'}
                         </Button>
                       ) : (
                         <span className="text-xs text-muted-foreground">Delivered</span>
@@ -197,3 +197,5 @@ export function CertificateQueueTab() {
     </div>
   );
 }
+
+

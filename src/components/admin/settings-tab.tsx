@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,18 +56,18 @@ export function SettingsTab() {
     } finally { setSaving(false); }
   }
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  if (loading) return <div className="text-sm text-muted-foreground">Loadingâ€¦</div>;
 
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-2xl font-display">Organization settings</h2>
+        <p className="kicker">Organization settings</p>
         <p className="text-sm text-muted-foreground">
           Used across every certificate PDF and the public verification page.
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card p-5 space-y-4">
+      <div className="surface-panel rounded-xl p-5 space-y-4">
         <Field label="Organization name" value={s.org_name} onChange={(v) => setS({ ...s, org_name: v })} />
         <Field
           label="Default certificate ID prefix"
@@ -78,12 +78,12 @@ export function SettingsTab() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-lg border bg-card p-5 space-y-4">
+        <div className="surface-panel rounded-xl p-5 space-y-4">
           <h3 className="font-medium">Signatory #1 (left)</h3>
           <Field label="Name" value={s.signatory1_name} onChange={(v) => setS({ ...s, signatory1_name: v })} />
           <Field label="Title" value={s.signatory1_title} onChange={(v) => setS({ ...s, signatory1_title: v })} />
         </div>
-        <div className="rounded-lg border bg-card p-5 space-y-4">
+        <div className="surface-panel rounded-xl p-5 space-y-4">
           <h3 className="font-medium">Signatory #2 (right)</h3>
           <Field label="Name" value={s.signatory2_name} onChange={(v) => setS({ ...s, signatory2_name: v })} />
           <Field label="Title" value={s.signatory2_title} onChange={(v) => setS({ ...s, signatory2_title: v })} />
@@ -91,7 +91,7 @@ export function SettingsTab() {
       </div>
 
       <Button onClick={save} disabled={saving}>
-        <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save settings"}
+        <Save className="h-4 w-4 mr-1" /> {saving ? "Savingâ€¦" : "Save settings"}
       </Button>
     </div>
   );
@@ -106,3 +106,5 @@ function Field({ label, value, onChange, hint }: { label: string; value: string;
     </div>
   );
 }
+
+

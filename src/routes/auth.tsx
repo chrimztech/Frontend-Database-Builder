@@ -1,7 +1,16 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, Lock } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Lock,
+  ShieldCheck,
+} from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,12 +18,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { ORG_NAME, ORG_FULL_NAME } from "@/lib/cert";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
+type Stage = "signin" | "must-change";
+
+const securityNotes = [
+  "Role-based access to certificate, student, and template administration.",
+  "Mandatory password update support for newly provisioned accounts.",
+  "Live access to the same registry used for public certificate verification.",
+];
+
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: `Staff sign in — ${ORG_NAME}` }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [
+      { title: `Staff sign in - ${ORG_NAME}` },
+      { name: "robots", content: "noindex" },
+    ],
+  }),
   component: AuthPage,
 });
-
-type Stage = "signin" | "must-change";
 
 function AuthPage() {
   const navigate = useNavigate();
@@ -23,7 +43,6 @@ function AuthPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
@@ -33,9 +52,16 @@ function AuthPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
-      if (!data.session) return;
+      if (!data.session) {
+        return;
+      }
+
       const mustChange = await checkMustChangePassword(data.session.user.id);
-      if (mustChange) { setStage("must-change"); return; }
+      if (mustChange) {
+        setStage("must-change");
+        return;
+      }
+
       navigate({ to: "/admin", replace: true });
     });
   }, [navigate]);
@@ -46,131 +72,167 @@ function AuthPage() {
       .select("must_change_password")
       .eq("user_id", userId)
       .maybeSingle();
+
     return data?.must_change_password === true;
   }
 
-  async function handleSignIn(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSignIn(event: FormEvent) {
+    event.preventDefault();
     setLoading(true);
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
       const mustChange = await checkMustChangePassword(data.user.id);
-      if (mustChange) { setStage("must-change"); return; }
+      if (mustChange) {
+        setStage("must-change");
+        return;
+      }
+
       navigate({ to: "/admin", replace: true });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sign-in failed");
-    } finally { setLoading(false); }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sign-in failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) { toast.error("Passwords do not match"); return; }
-    if (newPassword.length < 8) { toast.error("Password must be at least 8 characters"); return; }
+  async function handleChangePassword(event: FormEvent) {
+    event.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+
     setLoading(true);
+
     try {
-      const { error: pwErr } = await supabase.auth.updateUser({ password: newPassword });
-      if (pwErr) throw pwErr;
-      const { data: { user } } = await supabase.auth.getUser();
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (passwordError) {
+        throw passwordError;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (user) {
         await (supabase as any)
           .from("user_settings")
           .update({ must_change_password: false })
           .eq("user_id", user.id);
       }
-      toast.success("Password updated. Welcome!");
+
+      toast.success("Password updated. Welcome.");
       navigate({ to: "/admin", replace: true });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update password");
-    } finally { setLoading(false); }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update password",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
-  return (
-    <div className="min-h-screen flex">
-      {/* ── Left branding panel ─────────────────────────────── */}
-      <div
-        className="hidden lg:flex lg:w-[55%] flex-col items-center justify-center relative overflow-hidden p-12"
-        style={{ background: "var(--gradient-hero)" }}
-      >
-        {/* subtle dot-grid overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.07]"
-          style={{
-            backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
-            backgroundSize: "28px 28px",
-          }}
-        />
-        {/* decorative gold ring behind logo */}
-        <div
-          className="absolute w-[420px] h-[420px] rounded-full opacity-10"
-          style={{
-            background: "radial-gradient(circle, var(--gold) 0%, transparent 70%)",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -60%)",
-          }}
-        />
+  const passwordsMatch = confirmPassword.length > 0 && newPassword === confirmPassword;
 
-        <div className="relative flex flex-col items-center text-center gap-8 max-w-md">
-          {/* Logo */}
-          <div className="w-40 h-40 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-2xl p-3">
-            <img
-              src={unzaLogo.url}
-              alt="UNZA logo"
-              className="w-full h-full object-contain drop-shadow-lg"
-            />
+  return (
+    <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6">
+      <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-6xl overflow-hidden rounded-[2rem] border border-white/55 bg-white/55 shadow-[var(--shadow-elegant)] backdrop-blur-xl xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="surface-panel-strong relative flex flex-col justify-between gap-10 overflow-hidden px-6 py-8 text-white sm:px-8 sm:py-10">
+          <div className="mesh-overlay absolute inset-0 opacity-35" />
+          <div className="absolute -right-12 top-8 h-56 w-56 rounded-full bg-gold/14 blur-3xl" />
+          <div className="absolute -left-12 bottom-0 h-48 w-48 rounded-full bg-white/8 blur-3xl" />
+
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/16 bg-white/10 backdrop-blur-sm">
+              <img
+                src={unzaLogo.url}
+                alt="UNZA logo"
+                className="h-9 w-9 object-contain"
+              />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
+                Certificate Operations
+              </p>
+              <h1 className="font-display text-2xl text-white">{ORG_NAME}</h1>
+            </div>
           </div>
 
-          <div>
-            <h1 className="text-4xl font-display font-semibold text-white tracking-tight leading-tight">
-              {ORG_NAME}
-            </h1>
-            <p className="mt-3 text-sm text-white/60 leading-relaxed">
-              {ORG_FULL_NAME}
+          <div className="relative max-w-xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-white/75 backdrop-blur-sm">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Staff Access Portal
+            </div>
+            <h2 className="mt-6 text-5xl leading-tight text-white">
+              Professional control over certificate issuance and verification.
+            </h2>
+            <p className="mt-4 max-w-lg text-base leading-7 text-white/72">
+              Access the secure administration workspace for students, enrolments,
+              certificate generation, branding, and audit review across {ORG_FULL_NAME}.
             </p>
           </div>
 
-          <div className="w-16 h-px" style={{ background: "var(--gold)" }} />
-
-          <p className="text-xs text-white/40 uppercase tracking-widest">
-            Certificate Management System
-          </p>
-        </div>
-
-        {/* bottom attribution */}
-        <div className="absolute bottom-6 text-[11px] text-white/25">
-          <Link to="/" className="hover:text-white/50 transition-colors">
-            ← Return to public verification
-          </Link>
-        </div>
-      </div>
-
-      {/* ── Right form panel ────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 bg-background">
-        {/* Mobile-only logo */}
-        <div className="flex lg:hidden flex-col items-center gap-3 mb-10">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-            <img src={unzaLogo.url} alt="UNZA logo" className="w-14 h-14 object-contain" />
-          </div>
-          <span className="font-display text-xl font-semibold">{ORG_NAME}</span>
-        </div>
-
-        <div className="w-full max-w-sm">
-          {stage === "signin" ? (
-            <>
-              <div className="mb-8">
-                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 mb-4">
-                  <Lock className="h-5 w-5 text-primary" />
-                </div>
-                <h2 className="text-2xl font-display font-semibold">Staff sign in</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Authorised personnel only. Contact your administrator if you need access.
-                </p>
+          <div className="relative grid gap-4 md:grid-cols-3">
+            {securityNotes.map((note) => (
+              <div
+                key={note}
+                className="rounded-[1.4rem] border border-white/14 bg-white/10 p-4 backdrop-blur-sm"
+              >
+                <CheckCircle2 className="h-5 w-5 text-gold" />
+                <p className="mt-3 text-sm leading-6 text-white/72">{note}</p>
               </div>
+            ))}
+          </div>
 
-              <form className="space-y-5" onSubmit={handleSignIn}>
-                <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-sm font-medium">
+          <div className="relative">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 text-sm font-medium text-white/70 hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Return to public verification
+            </Link>
+          </div>
+        </section>
+
+        <section className="flex items-center justify-center px-6 py-10 sm:px-10">
+          <div className="w-full max-w-md">
+            <p className="kicker">
+              {stage === "signin" ? "Staff Sign In" : "Security Update"}
+            </p>
+            <h2 className="mt-3 text-4xl text-foreground">
+              {stage === "signin"
+                ? "Welcome back"
+                : "Set your permanent password"}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              {stage === "signin"
+                ? "Use your staff credentials to access certificate administration."
+                : "Your account was created with a temporary password. Choose a secure permanent password to continue."}
+            </p>
+
+            {stage === "signin" ? (
+              <form className="mt-8 space-y-5" onSubmit={handleSignIn}>
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-sm font-semibold">
                     Email address
                   </Label>
                   <Input
@@ -178,139 +240,154 @@ function AuthPage() {
                     type="email"
                     required
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(event) => setEmail(event.target.value)}
                     autoComplete="email"
                     placeholder="you@unza.ac.zm"
                     className="h-11"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-sm font-medium">
-                    Password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      className="h-11 pr-10"
-                    />
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full h-11 text-sm font-medium"
-                  disabled={loading}
-                >
-                  {loading ? "Signing in…" : "Sign in"}
+
+                <PasswordField
+                  id="password"
+                  label="Password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  show={showPassword}
+                  onToggle={() => setShowPassword((current) => !current)}
+                />
+
+                <Button type="submit" size="lg" className="mt-2 w-full" disabled={loading}>
+                  <Lock className="mr-1 h-4 w-4" />
+                  {loading ? "Signing in..." : "Sign in to admin"}
                 </Button>
               </form>
-            </>
-          ) : (
-            <>
-              <div className="mb-8">
-                <div
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full mb-4"
-                  style={{ background: "color-mix(in oklab, var(--gold) 20%, transparent)" }}
-                >
-                  <Lock className="h-5 w-5" style={{ color: "var(--gold)" }} />
-                </div>
-                <h2 className="text-2xl font-display font-semibold">Set your password</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Your account was created with a temporary password. Choose a permanent one to continue.
-                </p>
-              </div>
+            ) : (
+              <form className="mt-8 space-y-5" onSubmit={handleChangePassword}>
+                <PasswordField
+                  id="new-password"
+                  label="New password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  show={showNew}
+                  onToggle={() => setShowNew((current) => !current)}
+                />
 
-              <form className="space-y-5" onSubmit={handleChangePassword}>
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-password" className="text-sm font-medium">
-                    New password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="new-password"
-                      type={showNew ? "text" : "password"}
-                      required
-                      minLength={8}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      autoComplete="new-password"
-                      placeholder="At least 8 characters"
-                      className="h-11 pr-10"
-                    />
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => setShowNew(!showNew)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm-password" className="text-sm font-medium">
-                    Confirm new password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="confirm-password"
-                      type={showConfirm ? "text" : "password"}
-                      required
-                      minLength={8}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      autoComplete="new-password"
-                      placeholder="Repeat your password"
-                      className="h-11 pr-10"
-                    />
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => setShowConfirm(!showConfirm)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
+                <PasswordField
+                  id="confirm-password"
+                  label="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Repeat your password"
+                  show={showConfirm}
+                  onToggle={() => setShowConfirm((current) => !current)}
+                />
 
-                {/* password match indicator */}
                 {confirmPassword && (
-                  <p className={`text-xs ${newPassword === confirmPassword ? "text-green-600" : "text-destructive"}`}>
-                    {newPassword === confirmPassword ? "✓ Passwords match" : "Passwords do not match"}
+                  <p
+                    className={`text-sm ${
+                      passwordsMatch ? "text-green-700" : "text-destructive"
+                    }`}
+                  >
+                    {passwordsMatch
+                      ? "Passwords match."
+                      : "Passwords do not match."}
                   </p>
                 )}
 
+                <div className="rounded-[1.35rem] border border-border/70 bg-white/72 p-4 shadow-[var(--shadow-soft)]">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/8 text-primary">
+                      <KeyRound className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        Password guidance
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        Choose a password with at least 8 characters that is not reused
+                        elsewhere.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <Button
                   type="submit"
-                  className="w-full h-11 text-sm font-medium"
-                  disabled={loading || !newPassword || !confirmPassword || newPassword !== confirmPassword}
+                  size="lg"
+                  className="w-full"
+                  disabled={
+                    loading ||
+                    !newPassword ||
+                    !confirmPassword ||
+                    newPassword !== confirmPassword
+                  }
                 >
-                  {loading ? "Saving…" : "Set password & continue"}
+                  <ShieldCheck className="mr-1 h-4 w-4" />
+                  {loading ? "Saving..." : "Set password and continue"}
                 </Button>
               </form>
-            </>
-          )}
+            )}
 
-          <p className="mt-8 text-center text-xs text-muted-foreground">
-            <Link to="/" className="hover:text-foreground transition-colors underline underline-offset-4">
-              ← Back to certificate verification
-            </Link>
-          </p>
-        </div>
+            <div className="mt-8 rounded-[1.35rem] border border-border/70 bg-white/72 p-4 text-sm leading-6 text-muted-foreground shadow-[var(--shadow-soft)]">
+              Access is limited to authorised university personnel. If you need access,
+              contact an administrator to create your account and assign the correct role.
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  autoComplete,
+  placeholder,
+  show,
+  onToggle,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  autoComplete: string;
+  placeholder: string;
+  show: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id} className="text-sm font-semibold">
+        {label}
+      </Label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={show ? "text" : "password"}
+          required
+          minLength={id === "password" ? undefined : 8}
+          value={value}
+          onChange={onChange}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          className="h-11 pr-12"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={onToggle}
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
       </div>
     </div>
   );

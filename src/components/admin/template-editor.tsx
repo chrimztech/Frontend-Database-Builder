@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Save, RotateCcw, Eye, EyeOff, Download, Undo2, Redo2,
@@ -123,7 +123,7 @@ export function TemplateEditor() {
     })();
   }, []);
 
-  // ── History ───────────────────────────────────────────
+  // â”€â”€ History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function syncUndoRedo() {
     setCanUndo(histIdxRef.current > 0);
     setCanRedo(histIdxRef.current < historyRef.current.length - 1);
@@ -187,7 +187,7 @@ export function TemplateEditor() {
     }
   }
 
-  // ── Field add / delete ────────────────────────────────
+  // â”€â”€ Field add / delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function deleteField(id: string) {
     const current = layoutRef.current;
     pushLayout({ ...current, fields: current.fields.filter((f) => f.id !== id) });
@@ -228,7 +228,7 @@ export function TemplateEditor() {
     setSelected(id);
   }
 
-  // ── Logo overlay ──────────────────────────────────────
+  // â”€â”€ Logo overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const logoOverlay: LogoOverlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
 
   function updateLogoOverlay(patch: Partial<LogoOverlay>) {
@@ -255,7 +255,7 @@ export function TemplateEditor() {
     return (Object.keys(FIELD_LABELS) as FieldId[]).filter((id) => !activeIds.has(id));
   }, [layout.fields]);
 
-  // ── Quick alignment ───────────────────────────────────
+  // â”€â”€ Quick alignment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function centerH() {
     if (!selectedField) return;
     updateField(selectedField.id, { x: (A4_MM.w - selectedField.w) / 2 });
@@ -265,7 +265,7 @@ export function TemplateEditor() {
     updateField(selectedField.id, { y: (A4_MM.h - selectedField.h) / 2 });
   }
 
-  // ── Keyboard shortcuts ────────────────────────────────
+  // â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
@@ -289,7 +289,7 @@ export function TemplateEditor() {
     return () => window.removeEventListener("keydown", handler);
   }, [selected]);
 
-  // ── Save / Reset / Preview ────────────────────────────
+  // â”€â”€ Save / Reset / Preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function onSave() {
     setSaving(true);
     try {
@@ -308,7 +308,7 @@ export function TemplateEditor() {
   }
 
   async function onPreviewPdf() {
-    toast.message("Generating preview PDF…");
+    toast.message("Generating preview PDFâ€¦");
     try {
       await saveTemplateLayout(layout);
       clearBrandingCache();
@@ -318,14 +318,14 @@ export function TemplateEditor() {
     }
   }
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading template editor…</div>;
+  if (loading) return <div className="text-sm text-muted-foreground">Loading template editorâ€¦</div>;
 
   return (
-    <div className="space-y-4">
-      {/* ── Toolbar ── */}
+    <div className="space-y-6">
+      {/* â”€â”€ Toolbar â”€â”€ */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-display">Template editor</h2>
+          <p className="kicker">Template editor</p>
           <p className="text-sm text-muted-foreground max-w-2xl">
             Drag fields on the canvas. Add or delete fields in the panel. Arrow keys nudge selected fields (Shift = 5mm).
           </p>
@@ -345,19 +345,19 @@ export function TemplateEditor() {
             <Download className="h-4 w-4 mr-1" /> Save & proof PDF
           </Button>
           <Button size="sm" onClick={onSave} disabled={saving}>
-            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save layout"}
+            <Save className="h-4 w-4 mr-1" /> {saving ? "Savingâ€¦" : "Save layout"}
           </Button>
         </div>
       </div>
 
       {!bgUrl && (
         <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
-          No certificate background uploaded yet — upload in the <span className="font-medium">Branding</span> tab.
+          No certificate background uploaded yet â€” upload in the <span className="font-medium">Branding</span> tab.
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-4">
-        {/* ── Canvas ── */}
+        {/* â”€â”€ Canvas â”€â”€ */}
         <div className="rounded-lg border bg-muted/20 overflow-hidden">
           <div className="flex items-center gap-3 px-3 py-2 border-b bg-card text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -379,7 +379,7 @@ export function TemplateEditor() {
             </div>
             {selected && selectedField && (
               <span className="text-muted-foreground ml-2 font-mono">
-                x:{selectedField.x.toFixed(1)} y:{selectedField.y.toFixed(1)} · {selectedField.w.toFixed(1)}×{selectedField.h.toFixed(1)} mm
+                x:{selectedField.x.toFixed(1)} y:{selectedField.y.toFixed(1)} Â· {selectedField.w.toFixed(1)}Ã—{selectedField.h.toFixed(1)} mm
               </span>
             )}
           </div>
@@ -436,7 +436,7 @@ export function TemplateEditor() {
           </div>
         </div>
 
-        {/* ── Side panel ── */}
+        {/* â”€â”€ Side panel â”€â”€ */}
         <ScrollArea className="rounded-lg border bg-card max-h-[82vh]">
           <div className="p-4 space-y-4">
 
@@ -556,7 +556,7 @@ export function TemplateEditor() {
               <p className="text-xs text-muted-foreground border-t pt-3">
                 Click a field on the canvas to edit it.
                 <br /><br />
-                <kbd className="px-1 rounded border text-[10px]">↑↓←→</kbd> Nudge 0.5mm &nbsp;
+                <kbd className="px-1 rounded border text-[10px]">â†‘â†“â†â†’</kbd> Nudge 0.5mm &nbsp;
                 <kbd className="px-1 rounded border text-[10px]">Shift+arrow</kbd> 5mm &nbsp;
                 <kbd className="px-1 rounded border text-[10px]">Esc</kbd> Deselect
               </p>
@@ -568,9 +568,9 @@ export function TemplateEditor() {
   );
 }
 
-// ═══════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Draggable / resizable field box
-// ═══════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const PREVIEW_TEXT: Partial<Record<string, string>> = {
   recipientName:  "Jane Doe",
   programme:      "Web Development Fundamentals",
@@ -707,12 +707,12 @@ function FieldBox({
   );
 }
 
-// 1pt ≈ 0.353mm; scale is px/mm → multiply to get px/pt
+// 1pt â‰ˆ 0.353mm; scale is px/mm â†’ multiply to get px/pt
 function ptToPx(scalePxPerMm: number) { return scalePxPerMm * 0.353; }
 
-// ═══════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Right-panel field editor
-// ═══════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function FieldEditor({
   field, onChange, onDelete, onCenterH, onCenterV,
 }: {
@@ -902,3 +902,4 @@ function NumField({ label, value, min, max, onChange }: {
     </div>
   );
 }
+

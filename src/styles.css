@@ -6,7 +6,7 @@
 
 @theme inline {
   --font-display: "Cormorant Garamond", "Playfair Display", Georgia, serif;
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "Manrope", "Inter", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -40,14 +40,16 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --shadow-elegant: 0 20px 60px -20px color-mix(in oklab, var(--navy) 35%, transparent);
-  --shadow-gold: 0 0 0 1px color-mix(in oklab, var(--gold) 40%, transparent), 0 8px 30px -10px color-mix(in oklab, var(--gold) 30%, transparent);
-  --gradient-hero: linear-gradient(135deg, var(--navy) 0%, oklch(0.28 0.10 150) 55%, oklch(0.20 0.08 150) 100%);
+  --shadow-soft: 0 20px 48px -28px color-mix(in oklab, var(--navy) 28%, transparent);
+  --shadow-elegant: 0 28px 80px -32px color-mix(in oklab, var(--navy) 40%, transparent);
+  --shadow-gold: 0 0 0 1px color-mix(in oklab, var(--gold) 40%, transparent), 0 18px 36px -24px color-mix(in oklab, var(--gold) 40%, transparent);
+  --gradient-hero: linear-gradient(135deg, oklch(0.30 0.10 150) 0%, oklch(0.25 0.08 150) 42%, oklch(0.19 0.05 150) 100%);
+  --gradient-surface: linear-gradient(180deg, color-mix(in oklab, white 94%, var(--gold) 6%) 0%, color-mix(in oklab, white 98%, var(--navy) 2%) 100%);
   --gradient-gold: linear-gradient(135deg, oklch(0.82 0.16 88), oklch(0.70 0.16 75));
 }
 
 :root {
-  --radius: 0.5rem;
+  --radius: 0.9rem;
 
   /* "navy" token kept as the brand primary, retuned to UNZA forest green */
   --navy: oklch(0.34 0.11 150);
@@ -107,12 +109,93 @@
     border-color: var(--color-border);
   }
   body {
+    min-height: 100vh;
     background-color: var(--color-background);
+    background-image:
+      radial-gradient(circle at top left, color-mix(in oklab, var(--gold) 14%, transparent) 0, transparent 22rem),
+      radial-gradient(circle at 82% 14%, color-mix(in oklab, var(--navy) 10%, transparent) 0, transparent 30rem),
+      linear-gradient(180deg, color-mix(in oklab, white 92%, var(--gold) 8%) 0%, color-mix(in oklab, white 97%, var(--navy) 3%) 100%);
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
   h1, h2, h3, h4 {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--gold) 35%, transparent);
+    color: var(--color-foreground);
+  }
+  a,
+  button,
+  input,
+  textarea,
+  select {
+    transition:
+      color 180ms ease,
+      background-color 180ms ease,
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease,
+      opacity 180ms ease;
+  }
+}
+
+@layer components {
+  .surface-panel {
+    border: 1px solid color-mix(in oklab, var(--border) 82%, white 18%);
+    background: linear-gradient(180deg, color-mix(in oklab, white 94%, var(--gold) 6%) 0%, color-mix(in oklab, white 98%, var(--navy) 2%) 100%);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(18px);
+  }
+
+  .surface-panel-strong {
+    border: 1px solid color-mix(in oklab, white 22%, transparent);
+    background: linear-gradient(180deg, color-mix(in oklab, var(--navy) 92%, white 8%) 0%, color-mix(in oklab, oklch(0.18 0.05 150) 92%, var(--navy) 8%) 100%);
+    box-shadow: var(--shadow-elegant);
+    backdrop-filter: blur(18px);
+  }
+
+  .mesh-overlay {
+    background-image: radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.18) 1px, transparent 0);
+    background-size: 26px 26px;
+  }
+
+  .kicker {
+    color: color-mix(in oklab, var(--navy) 72%, white 28%);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+  }
+
+  .admin-panel {
+    border: 1px solid color-mix(in oklab, var(--border) 78%, white 22%);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.88) 0%, color-mix(in oklab, white 95%, var(--gold) 5%) 100%);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(18px);
+  }
+
+  .admin-toolbar {
+    border: 1px solid color-mix(in oklab, var(--border) 78%, white 22%);
+    background: rgb(255 255 255 / 0.7);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(18px);
+  }
+
+  .admin-stat {
+    border: 1px solid color-mix(in oklab, var(--border) 78%, white 22%);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.82) 0%, color-mix(in oklab, white 96%, var(--navy) 4%) 100%);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(18px);
+  }
+
+  .admin-empty {
+    border: 1px dashed color-mix(in oklab, var(--border) 84%, white 16%);
+    background: rgb(255 255 255 / 0.52);
+    backdrop-filter: blur(16px);
   }
 }

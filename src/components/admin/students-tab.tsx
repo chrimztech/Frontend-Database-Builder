@@ -1,20 +1,54 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Award,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Plus,
+  Search,
+  Shield,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Shield, ChevronDown, ChevronRight, Award } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  AdminEmptyState,
+  AdminPageHeader,
+  AdminPanel,
+  AdminPanelHeader,
+  AdminStat,
+} from "@/components/admin/admin-ui";
 
 type StudentCategory = "unza" | "non_unza";
 type Student = {
@@ -32,7 +66,7 @@ type Student = {
 };
 
 type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
-type PaymentStatus  = "pending" | "paid" | "waived" | "free";
+type PaymentStatus = "pending" | "paid" | "waived" | "free";
 
 type StudentEnrolment = {
   id: string;
@@ -46,17 +80,26 @@ type StudentEnrolment = {
 };
 
 const STATUS_LABEL: Record<EnrolmentStatus, string> = {
-  enrolled: "Enrolled", in_progress: "In progress", completed: "Completed", certified: "Certified",
+  enrolled: "Enrolled",
+  in_progress: "In progress",
+  completed: "Completed",
+  certified: "Certified",
 };
+
 const STATUS_BADGE: Record<EnrolmentStatus, string> = {
   enrolled: "bg-muted text-foreground",
   in_progress: "bg-primary/15 text-primary",
-  completed: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  certified: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  completed: "bg-amber-500/15 text-amber-700",
+  certified: "bg-emerald-500/15 text-emerald-700",
 };
+
 const PAY_LABEL: Record<PaymentStatus, string> = {
-  pending: "Pending", paid: "Paid", waived: "Waived", free: "Free",
+  pending: "Pending",
+  paid: "Paid",
+  waived: "Waived",
+  free: "Free",
 };
+
 const PAY_TONE: Record<PaymentStatus, string> = {
   pending: "bg-amber-500/15 text-amber-700",
   paid: "bg-emerald-500/15 text-emerald-700",
@@ -64,19 +107,34 @@ const PAY_TONE: Record<PaymentStatus, string> = {
   free: "bg-sky-500/15 text-sky-700",
 };
 
-async function logAccess(action: "view" | "create" | "update" | "delete" | "export", studentId: string | null, detail?: string) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  await supabase.from("student_access_log").insert({
-    student_id: studentId,
-    actor_id: user.id,
-    action,
-    detail: detail ?? null,
-  }).then(() => {}, () => {});
+async function logAccess(
+  action: "view" | "create" | "update" | "delete" | "export",
+  studentId: string | null,
+  detail?: string,
+) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return;
+  }
+
+  await supabase
+    .from("student_access_log")
+    .insert({
+      student_id: studentId,
+      actor_id: user.id,
+      action,
+      detail: detail ?? null,
+    })
+    .then(
+      () => {},
+      () => {},
+    );
 }
 
 export function StudentsTab() {
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"all" | StudentCategory>("all");
 
@@ -87,94 +145,141 @@ export function StudentsTab() {
         .from("students")
         .select("*")
         .order("created_at", { ascending: false });
-      if (error) throw error;
+
+      if (error) {
+        throw error;
+      }
+
       return data as Student[];
     },
   });
 
-  const filtered = (students.data ?? []).filter((s) => {
-    if (category !== "all" && s.category !== category) return false;
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
+  const fullList = students.data ?? [];
+  const filtered = fullList.filter((student) => {
+    if (category !== "all" && student.category !== category) {
+      return false;
+    }
+
+    if (!search.trim()) {
+      return true;
+    }
+
+    const query = search.toLowerCase();
     return (
-      s.full_name.toLowerCase().includes(q) ||
-      (s.email ?? "").toLowerCase().includes(q) ||
-      (s.national_id ?? "").toLowerCase().includes(q) ||
-      (s.unza_student_id ?? "").toLowerCase().includes(q)
+      student.full_name.toLowerCase().includes(query) ||
+      (student.email ?? "").toLowerCase().includes(query) ||
+      (student.national_id ?? "").toLowerCase().includes(query) ||
+      (student.unza_student_id ?? "").toLowerCase().includes(query)
     );
   });
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["admin-students"] });
-
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-students"] });
   const counts = {
-    total: students.data?.length ?? 0,
-    unza: (students.data ?? []).filter((s) => s.category === "unza").length,
-    nonUnza: (students.data ?? []).filter((s) => s.category === "non_unza").length,
+    total: fullList.length,
+    unza: fullList.filter((student) => student.category === "unza").length,
+    nonUnza: fullList.filter((student) => student.category === "non_unza").length,
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-display">Students</h2>
-          <p className="text-sm text-muted-foreground flex items-center gap-2">
-            <Shield className="h-3.5 w-3.5" />
-            All records are admin-only. Access is logged for audit.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary">Total {counts.total}</Badge>
-            <Badge variant="secondary">UNZA {counts.unza}</Badge>
-            <Badge variant="secondary">Non-UNZA {counts.nonUnza}</Badge>
-          </div>
-          <Select value={category} onValueChange={(v) => setCategory(v as any)}>
-            <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              <SelectItem value="unza">UNZA students</SelectItem>
-              <SelectItem value="non_unza">Non-UNZA students</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-56" />
-          </div>
-          <StudentDialog onSaved={refresh} />
-        </div>
+    <div className="space-y-8">
+      <AdminPageHeader
+        eyebrow="People"
+        title="Student records"
+        description="Manage student identity data, category-based fee eligibility, and the audit-sensitive personal details used in enrolment and certification."
+        actions={<StudentDialog onSaved={refresh} />}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminStat label="Students" value={counts.total} hint="Total student records stored in the registry" />
+        <AdminStat label="UNZA" value={counts.unza} hint="Students eligible for UNZA fee treatment" />
+        <AdminStat label="Non-UNZA" value={counts.nonUnza} hint="External students and standard-fee learners" />
+        <AdminStat label="Protected" value="Audit" hint="Personal data access remains admin-only and logged" />
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
-        {students.isLoading ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className="p-10 text-center text-sm text-muted-foreground">No students match.</div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-6" />
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>UNZA / National ID</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((s) => (
-                <StudentRow key={s.id} student={s} onChange={refresh} />
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+      <AdminPanel>
+        <AdminPanelHeader
+          title="Student directory"
+          description="Search by name, email, national ID, or UNZA student ID, then expand a record to inspect course history."
+          actions={
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Select
+                value={category}
+                onValueChange={(value) => setCategory(value as "all" | StudentCategory)}
+              >
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  <SelectItem value="unza">UNZA students</SelectItem>
+                  <SelectItem value="non_unza">Non-UNZA students</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search students..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+          }
+        />
+
+        <div className="border-b border-border/70 px-5 py-4 text-sm text-muted-foreground sm:px-6">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            All records are admin-only and access is logged for audit.
+          </div>
+        </div>
+
+        <div className="px-5 py-5 sm:px-6">
+          {students.isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading students...</div>
+          ) : filtered.length === 0 ? (
+            <AdminEmptyState
+              title="No students match"
+              description={
+                fullList.length === 0
+                  ? "Add the first student record to begin managing enrolments and certification."
+                  : "Try a different filter or search term to find the student record you need."
+              }
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Name</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>UNZA / National ID</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((student) => (
+                  <StudentRow key={student.id} student={student} onChange={refresh} />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </AdminPanel>
     </div>
   );
 }
 
-function StudentRow({ student, onChange }: { student: Student; onChange: () => void }) {
+function StudentRow({
+  student,
+  onChange,
+}: {
+  student: Student;
+  onChange: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   const enrolments = useQuery({
@@ -184,248 +289,406 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
       await logAccess("view", student.id, "view courses");
       const { data, error } = await supabase
         .from("enrolments")
-        .select(`
+        .select(
+          `
           id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
           course:courses ( id, name, prefix )
-        `)
+        `,
+        )
         .eq("student_id", student.id)
         .order("enrolled_at", { ascending: false });
-      if (error) throw error;
+
+      if (error) {
+        throw error;
+      }
+
       return (data ?? []) as unknown as StudentEnrolment[];
     },
   });
 
   async function remove() {
-    if (!window.confirm(`Delete ${student.full_name}? Their enrolments will also be removed.`)) return;
+    if (
+      !window.confirm(
+        `Delete ${student.full_name}? Their enrolments will also be removed.`,
+      )
+    ) {
+      return;
+    }
+
     await logAccess("delete", student.id, student.full_name);
     const { error } = await supabase.from("students").delete().eq("id", student.id);
-    if (error) toast.error(error.message);
-    else { toast.success("Student deleted"); onChange(); }
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Student deleted");
+      onChange();
+    }
   }
 
-  const idDisplay = student.category === "unza"
-    ? (student.unza_student_id ?? "—")
-    : (student.national_id ?? "—");
-
-  const enrolCount = enrolments.data?.length;
+  const idDisplay =
+    student.category === "unza"
+      ? student.unza_student_id ?? "-"
+      : student.national_id ?? "-";
+  const enrolmentCount = enrolments.data?.length;
 
   return (
     <>
       <TableRow
-        className="cursor-pointer hover:bg-muted/50"
-        onClick={() => setExpanded((v) => !v)}
+        className="cursor-pointer"
+        onClick={() => setExpanded((current) => !current)}
       >
         <TableCell className="pr-0">
-          {expanded
-            ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-        </TableCell>
-        <TableCell>
-          <div className="font-medium">{student.full_name}</div>
-          {expanded && enrolCount !== undefined && (
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {enrolCount === 0 ? "No enrolments" : `${enrolCount} course${enrolCount !== 1 ? "s" : ""}`}
-            </div>
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
         </TableCell>
         <TableCell>
-          {student.category === "unza"
-            ? <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
-            : <Badge variant="outline">Non-UNZA</Badge>}
+          <div className="font-medium">{student.full_name}</div>
+          {expanded && enrolmentCount !== undefined ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {enrolmentCount === 0
+                ? "No enrolments"
+                : `${enrolmentCount} course${enrolmentCount !== 1 ? "s" : ""}`}
+            </div>
+          ) : null}
         </TableCell>
-        <TableCell className="text-muted-foreground">{student.email ?? "—"}</TableCell>
-        <TableCell className="text-muted-foreground">{student.phone ?? "—"}</TableCell>
-        <TableCell className="text-muted-foreground font-mono text-xs">{idDisplay}</TableCell>
-        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-end gap-1">
-            <StudentDialog onSaved={onChange} student={student} trigger={
-              <Button size="sm" variant="ghost"><Pencil className="h-4 w-4" /></Button>
-            } />
-            <Button size="sm" variant="ghost" onClick={remove}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+        <TableCell>
+          {student.category === "unza" ? (
+            <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
+          ) : (
+            <Badge variant="outline">Non-UNZA</Badge>
+          )}
+        </TableCell>
+        <TableCell className="text-muted-foreground">{student.email ?? "-"}</TableCell>
+        <TableCell className="text-muted-foreground">{student.phone ?? "-"}</TableCell>
+        <TableCell className="font-mono text-xs text-muted-foreground">{idDisplay}</TableCell>
+        <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+          <div className="flex justify-end gap-2">
+            <StudentDialog
+              onSaved={onChange}
+              student={student}
+              trigger={
+                <Button size="sm" variant="outline">
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              }
+            />
+            <Button size="sm" variant="outline" onClick={remove}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
           </div>
         </TableCell>
       </TableRow>
 
-      {expanded && (
-        <TableRow className="bg-muted/20 hover:bg-muted/20">
-          <TableCell colSpan={7} className="py-0">
-            <div className="px-8 py-3">
+      {expanded ? (
+        <TableRow className="bg-primary/[0.03] hover:bg-primary/[0.03]">
+          <TableCell colSpan={7} className="pb-5 pt-1">
+            <div className="rounded-[1.35rem] border border-border/70 bg-white/72 p-5 shadow-[var(--shadow-soft)]">
               {enrolments.isLoading ? (
-                <p className="text-xs text-muted-foreground py-2">Loading courses…</p>
+                <p className="text-sm text-muted-foreground">Loading course history...</p>
               ) : !enrolments.data || enrolments.data.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-2">
-                  This student has no enrolments yet. Go to the <strong>Enrolments</strong> tab to add one.
+                <p className="text-sm leading-6 text-muted-foreground">
+                  This student has no enrolments yet. Use the <strong>Enrolments</strong>{" "}
+                  workspace to add one.
                 </p>
               ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-muted-foreground">
-                      <th className="text-left py-1.5 pr-4 font-medium">Course</th>
-                      <th className="text-left py-1.5 pr-4 font-medium">Status</th>
-                      <th className="text-left py-1.5 pr-4 font-medium">Enrolled</th>
-                      <th className="text-left py-1.5 pr-4 font-medium">Fee</th>
-                      <th className="text-left py-1.5 pr-4 font-medium">Payment</th>
-                      <th className="text-left py-1.5 font-medium">Certificate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enrolments.data.map((e) => (
-                      <tr key={e.id} className="border-b last:border-0">
-                        <td className="py-2 pr-4 font-medium">{e.course?.name ?? "—"}</td>
-                        <td className="py-2 pr-4">
-                          <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium ${STATUS_BADGE[e.status]}`}>
-                            {STATUS_LABEL[e.status]}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-4 text-muted-foreground text-xs">
-                          {new Date(e.enrolled_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-2 pr-4 text-muted-foreground font-mono text-xs">
-                          {e.fee_charged != null ? `K${Number(e.fee_charged).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
-                        </td>
-                        <td className="py-2 pr-4">
-                          <span className={`inline-block text-xs px-2 py-0.5 rounded ${PAY_TONE[e.payment_status]}`}>
-                            {PAY_LABEL[e.payment_status]}
-                          </span>
-                        </td>
-                        <td className="py-2">
-                          {e.status === "certified" && e.certificate_id ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
-                              <Award className="h-3.5 w-3.5" /> Issued
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/70 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        <th className="py-3 pr-4">Course</th>
+                        <th className="py-3 pr-4">Status</th>
+                        <th className="py-3 pr-4">Enrolled</th>
+                        <th className="py-3 pr-4">Fee</th>
+                        <th className="py-3 pr-4">Payment</th>
+                        <th className="py-3">Certificate</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {enrolments.data.map((enrolment) => (
+                        <tr key={enrolment.id} className="border-b border-border/60 last:border-0">
+                          <td className="py-3 pr-4 font-medium">
+                            {enrolment.course?.name ?? "-"}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${STATUS_BADGE[enrolment.status]}`}
+                            >
+                              {STATUS_LABEL[enrolment.status]}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-sm text-muted-foreground">
+                            {new Date(enrolment.enrolled_at).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">
+                            {enrolment.fee_charged != null
+                              ? `K${Number(enrolment.fee_charged).toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                })}`
+                              : "-"}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${PAY_TONE[enrolment.payment_status]}`}
+                            >
+                              {PAY_LABEL[enrolment.payment_status]}
+                            </span>
+                          </td>
+                          <td className="py-3">
+                            {enrolment.status === "certified" &&
+                            enrolment.certificate_id ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                                <Award className="h-3.5 w-3.5" />
+                                Issued
+                              </span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </TableCell>
         </TableRow>
-      )}
+      ) : null}
     </>
   );
 }
 
-function StudentDialog({ onSaved, student, trigger }: { onSaved: () => void; student?: Student; trigger?: React.ReactNode }) {
+function StudentDialog({
+  onSaved,
+  student,
+  trigger,
+}: {
+  onSaved: () => void;
+  student?: Student;
+  trigger?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [full_name, setFullName] = useState(student?.full_name ?? "");
+  const [fullName, setFullName] = useState(student?.full_name ?? "");
   const [email, setEmail] = useState(student?.email ?? "");
   const [phone, setPhone] = useState(student?.phone ?? "");
-  const [category, setCategory] = useState<StudentCategory>(student?.category ?? "non_unza");
-  const [unza_student_id, setUnzaId] = useState(student?.unza_student_id ?? "");
-  const [national_id, setNationalId] = useState(student?.national_id ?? "");
-  const [consent, setConsent] = useState(!!student?.pii_consent_at);
+  const [category, setCategory] = useState<StudentCategory>(
+    student?.category ?? "non_unza",
+  );
+  const [unzaStudentId, setUnzaId] = useState(student?.unza_student_id ?? "");
+  const [nationalId, setNationalId] = useState(student?.national_id ?? "");
+  const [consent, setConsent] = useState(Boolean(student?.pii_consent_at));
   const [notes, setNotes] = useState(student?.notes ?? "");
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     setBusy(true);
     try {
-      if (!full_name.trim()) throw new Error("Name is required");
-      if (category === "unza" && !unza_student_id.trim()) throw new Error("UNZA student ID is required for UNZA students");
-      if (!consent) throw new Error("You must confirm the student has consented to storing their details");
+      if (!fullName.trim()) {
+        throw new Error("Name is required");
+      }
+      if (category === "unza" && !unzaStudentId.trim()) {
+        throw new Error("UNZA student ID is required for UNZA students");
+      }
+      if (!consent) {
+        throw new Error(
+          "You must confirm the student has consented to storing their details",
+        );
+      }
 
       const payload = {
-        full_name: full_name.trim(),
+        full_name: fullName.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
         category,
-        unza_student_id: category === "unza" ? unza_student_id.trim() : null,
-        national_id: national_id.trim() || null,
+        unza_student_id: category === "unza" ? unzaStudentId.trim() : null,
+        national_id: nationalId.trim() || null,
         notes: notes.trim() || null,
         pii_consent_at: student?.pii_consent_at ?? new Date().toISOString(),
         pii_consent_source: student?.pii_consent_source ?? "admin-confirmed",
       };
+
       if (student) {
-        const { error } = await supabase.from("students").update(payload).eq("id", student.id);
-        if (error) throw error;
+        const { error } = await supabase
+          .from("students")
+          .update(payload)
+          .eq("id", student.id);
+        if (error) {
+          throw error;
+        }
+
         await logAccess("update", student.id, "edit details");
         toast.success("Student updated");
       } else {
-        const { data, error } = await supabase.from("students").insert(payload).select("id").single();
-        if (error) throw error;
+        const { data, error } = await supabase
+          .from("students")
+          .insert(payload)
+          .select("id")
+          .single();
+        if (error) {
+          throw error;
+        }
+
         await logAccess("create", data?.id ?? null, payload.full_name);
         toast.success("Student added");
-        setFullName(""); setEmail(""); setPhone(""); setUnzaId(""); setNationalId(""); setNotes("");
+        setFullName("");
+        setEmail("");
+        setPhone("");
+        setUnzaId("");
+        setNationalId("");
+        setNotes("");
       }
+
       onSaved();
       setOpen(false);
-    } catch (e: any) {
-      toast.error(e.message ?? "Failed");
-    } finally { setBusy(false); }
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
-            <Plus className="h-4 w-4 mr-1" /> Add student
+          <Button>
+            <Plus className="mr-1 h-4 w-4" />
+            Add student
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{student ? "Edit student" : "Add a student"}</DialogTitle>
-          <DialogDescription>Personal data is encrypted in transit and only visible to admins.</DialogDescription>
+          <DialogDescription>
+            Personal data is visible only to authorised admins and is handled as
+            audit-sensitive information.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <Label>Category</Label>
-            <Select value={category} onValueChange={(v) => setCategory(v as StudentCategory)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Category" htmlFor="student-category">
+            <Select
+              value={category}
+              onValueChange={(value) => setCategory(value as StudentCategory)}
+            >
+              <SelectTrigger id="student-category">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="unza">UNZA student (subsidized fee)</SelectItem>
+                <SelectItem value="unza">UNZA student (subsidised fee)</SelectItem>
                 <SelectItem value="non_unza">Non-UNZA student (full fee)</SelectItem>
               </SelectContent>
             </Select>
+          </Field>
+
+          <Field label="Full name" htmlFor="student-name">
+            <Input
+              id="student-name"
+              required
+              maxLength={120}
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
+          </Field>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Email" htmlFor="student-email">
+              <Input
+                id="student-email"
+                type="email"
+                maxLength={160}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </Field>
+            <Field label="Phone" htmlFor="student-phone">
+              <Input
+                id="student-phone"
+                maxLength={40}
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
+            </Field>
           </div>
-          <div>
-            <Label htmlFor="fn">Full name</Label>
-            <Input id="fn" required maxLength={120} value={full_name} onChange={(e) => setFullName(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="em">Email</Label>
-              <Input id="em" type="email" maxLength={160} value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="ph">Phone</Label>
-              <Input id="ph" maxLength={40} value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-          </div>
+
           {category === "unza" ? (
-            <div>
-              <Label htmlFor="uz">UNZA student ID *</Label>
-              <Input id="uz" required maxLength={40} value={unza_student_id} onChange={(e) => setUnzaId(e.target.value)} placeholder="e.g. 2021123456" />
-            </div>
+            <Field label="UNZA student ID *" htmlFor="student-unza">
+              <Input
+                id="student-unza"
+                required
+                maxLength={40}
+                value={unzaStudentId}
+                onChange={(event) => setUnzaId(event.target.value)}
+                placeholder="e.g. 2021123456"
+              />
+            </Field>
           ) : (
-            <div>
-              <Label htmlFor="ni">National ID (optional)</Label>
-              <Input id="ni" maxLength={60} value={national_id} onChange={(e) => setNationalId(e.target.value)} />
-            </div>
+            <Field label="National ID (optional)" htmlFor="student-national">
+              <Input
+                id="student-national"
+                maxLength={60}
+                value={nationalId}
+                onChange={(event) => setNationalId(event.target.value)}
+              />
+            </Field>
           )}
-          <div>
-            <Label htmlFor="nt">Notes</Label>
-            <Textarea id="nt" rows={2} maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-          <label className="flex items-start gap-2 text-xs text-muted-foreground rounded border p-2 bg-muted/30">
-            <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>I confirm this student has consented to having their personal details stored and used for course administration and certification.</span>
+
+          <Field label="Notes" htmlFor="student-notes">
+            <Textarea
+              id="student-notes"
+              rows={3}
+              maxLength={1000}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </Field>
+
+          <label className="flex items-start gap-3 rounded-[1.35rem] border border-border/70 bg-white/72 p-4 text-sm leading-6 text-muted-foreground shadow-[var(--shadow-soft)]">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-border"
+              checked={consent}
+              onChange={(event) => setConsent(event.target.checked)}
+            />
+            <span>
+              I confirm this student has consented to having their personal details
+              stored and used for course administration and certification.
+            </span>
           </label>
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy} className="bg-accent text-accent-foreground hover:bg-accent/90">
-              {busy ? "Saving…" : "Save"}
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Saving..." : "Save student"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={htmlFor} className="text-sm font-semibold">
+        {label}
+      </Label>
+      {children}
+    </div>
   );
 }

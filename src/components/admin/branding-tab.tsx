@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trash2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,33 +15,33 @@ const SLOTS: { path: string; label: string; description: string; recommend: stri
     path: TEMPLATE_BG_PATH,
     label: "Certificate background (optional)",
     description: "Your existing certificate design used as the full-page background. Portrait A4 recommended.",
-    recommend: "PNG/JPG · portrait · ~1191×1684 px",
+    recommend: "PNG/JPG Â· portrait Â· ~1191Ã—1684 px",
   },
   {
     path: SEAL_PATH,
     label: "Digital seal",
     description: "Embossed seal or stamp centered above the signatures. Use a PNG with transparent background.",
-    recommend: "PNG with transparency · ~600×600 px",
+    recommend: "PNG with transparency Â· ~600Ã—600 px",
   },
   {
     path: SIGNATURE_PATH,
     label: "Signature #1 (left)",
     description: "Scanned signature for the first signatory (e.g. Director).",
-    recommend: "PNG with transparency · ~800×280 px",
+    recommend: "PNG with transparency Â· ~800Ã—280 px",
   },
   {
     path: SIGNATURE2_PATH,
     label: "Signature #2 (right)",
     description: "Scanned signature for the second signatory (e.g. Programme Lead).",
-    recommend: "PNG with transparency · ~800×280 px",
+    recommend: "PNG with transparency Â· ~800Ã—280 px",
   },
 ];
 
 export function BrandingTab() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-display">Certificate branding</h2>
+        <p className="kicker">Certificate branding</p>
         <p className="text-sm text-muted-foreground">
           Upload your certificate background, digital seal, and two signature images. Edit the signatory
           names and titles from the <span className="font-medium">Settings</span> tab.
@@ -103,7 +103,7 @@ function BrandingSlot({ path, label, description, recommend }: { path: string; l
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div className="surface-panel rounded-xl p-4 space-y-3">
       <div>
         <Label className="text-base">{label}</Label>
         <p className="text-xs text-muted-foreground mt-1">{description}</p>
@@ -112,7 +112,7 @@ function BrandingSlot({ path, label, description, recommend }: { path: string; l
 
       <div className="aspect-video rounded-md border bg-muted/30 flex items-center justify-center overflow-hidden">
         {loading ? (
-          <span className="text-xs text-muted-foreground">Loading…</span>
+          <span className="text-xs text-muted-foreground">Loadingâ€¦</span>
         ) : previewUrl ? (
           <img src={previewUrl} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
@@ -140,3 +140,5 @@ function BrandingSlot({ path, label, description, recommend }: { path: string; l
     </div>
   );
 }
+
+
