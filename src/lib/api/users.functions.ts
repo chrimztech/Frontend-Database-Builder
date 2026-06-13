@@ -14,6 +14,8 @@ export const listUsers = createServerFn({ method: "GET" })
     return data.users.map((u) => ({
       id: u.id,
       email: u.email ?? "",
+      full_name: (u.user_metadata?.full_name as string | undefined) ?? null,
+      phone: (u.user_metadata?.phone as string | undefined) ?? null,
       created_at: u.created_at,
       last_sign_in_at: u.last_sign_in_at ?? null,
       role: (roles ?? []).find((r) => r.user_id === u.id)?.role ?? null,
@@ -26,15 +28,18 @@ export const createUser = createServerFn({ method: "POST" })
       email: z.string().email(),
       password: z.string().min(8),
       role: z.enum(["admin", "user"]),
+      full_name: z.string().min(1).max(120),
+      phone: z.string().max(40).optional(),
     })
   )
   .handler(async ({ data }) => {
-    const { email, password, role } = data;
+    const { email, password, role, full_name, phone } = data;
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
+      user_metadata: { full_name, phone: phone ?? null },
     });
     if (error) throw error;
 

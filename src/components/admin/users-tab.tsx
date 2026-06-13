@@ -21,7 +21,9 @@ function generatePassword(): string {
 
 export function UsersTab() {
   const qc = useQueryClient();
+  const [full_name, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState(generatePassword);
   const [role, setRole] = useState<"admin" | "user">("user");
   const [busy, setBusy] = useState(false);
@@ -47,12 +49,14 @@ export function UsersTab() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!email || !password) return;
+    if (!full_name.trim() || !email || !password) return;
     setBusy(true);
     try {
-      await createUser({ data: { email, password, role } });
-      toast.success(`Account created for ${email}. Share the temporary password with them.`);
+      await createUser({ data: { full_name: full_name.trim(), email, password, role, phone: phone.trim() || undefined } });
+      toast.success(`Account created for ${full_name.trim()}. Share the temporary password with them.`);
+      setFullName("");
       setEmail("");
+      setPhone("");
       setPassword(generatePassword());
       setCopied(false);
       setRole("user");
@@ -100,7 +104,31 @@ export function UsersTab() {
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="new-email">Email address</Label>
+                <Label htmlFor="new-name">Full name *</Label>
+                <Input
+                  id="new-name"
+                  required
+                  maxLength={120}
+                  value={full_name}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. Jane Banda"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-phone">Phone number</Label>
+                <Input
+                  id="new-phone"
+                  type="tel"
+                  maxLength={40}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. 0977123456"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-email">Email address *</Label>
                 <Input
                   id="new-email"
                   type="email"
@@ -148,7 +176,7 @@ export function UsersTab() {
               </p>
             </div>
 
-            <Button type="submit" disabled={busy || !email || !password}>
+            <Button type="submit" disabled={busy || !full_name.trim() || !email || !password}>
               {busy ? "Creating account…" : "Create account"}
             </Button>
           </form>
@@ -167,7 +195,9 @@ export function UsersTab() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Last sign in</TableHead>
@@ -177,7 +207,13 @@ export function UsersTab() {
             <TableBody>
               {(users.data ?? []).map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.email}</TableCell>
+                  <TableCell className="font-medium">
+                    {u.full_name ?? <span className="text-muted-foreground text-xs">—</span>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {u.phone ?? "—"}
+                  </TableCell>
                   <TableCell>
                     {u.role ? (
                       <Badge variant={u.role === "admin" ? "default" : "secondary"}>

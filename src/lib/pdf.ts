@@ -1,11 +1,10 @@
-// Client-side certificate PDF generator (PORTRAIT A4) with QR code, digital seal,
-// two signature blocks, and a customizable template layout (positions/fonts saved
-// from the Template Editor).
-import { jsPDF } from "jspdf";
+// Client-side certificate PDF generator (PORTRAIT A4).
+import { jsPDF, GState } from "jspdf";
 import QRCode from "qrcode";
 import { verificationUrl } from "./cert";
 import { loadBranding } from "./branding";
-import { DEFAULT_LAYOUT, mmToPt, type FieldId, type LayoutField, type TemplateLayout } from "./template-layout";
+import { DEFAULT_LAYOUT, DEFAULT_LOGO_OVERLAY, mmToPt, type LayoutField, type TemplateLayout } from "./template-layout";
+import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 export interface CertificateInput {
   certificateId: string;
@@ -13,6 +12,19 @@ export interface CertificateInput {
   programme: string;
   issueDate: string; // YYYY-MM-DD
   issuerName?: string; // back-compat; unused
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+  } catch { return null; }
 }
 
 function formatDate(d: string) {
@@ -39,20 +51,6 @@ function styleToJsPdf(style?: string): "normal" | "bold" | "italic" | "bolditali
   }
 }
 
-function textValueFor(id: FieldId, cert: CertificateInput, settings: ReturnType<typeof getDefaultSettings>): string {
-  switch (id) {
-    case "recipientName": return cert.recipientName;
-    case "programme":     return cert.programme;
-    case "issueDate":     return formatDate(cert.issueDate);
-    case "certificateId": return `ID: ${cert.certificateId}`;
-    case "signature1Name":  return settings.signatory1_name;
-    case "signature1Title": return settings.signatory1_title;
-    case "signature2Name":  return settings.signatory2_name;
-    case "signature2Title": return settings.signatory2_title;
-    default: return "";
-  }
-}
-
 function getDefaultSettings() {
   return {
     org_name: "Your Organization",
@@ -64,42 +62,85 @@ function getDefaultSettings() {
   };
 }
 
-function imageDataUrlFor(id: FieldId, branding: Awaited<ReturnType<typeof loadBranding>> | null, qrDataUrl: string): string | null {
-  switch (id) {
-    case "qr": return qrDataUrl;
-    case "seal": return branding?.sealDataUrl ?? null;
-    case "signature1Image": return branding?.signatureDataUrl ?? null;
-    case "signature2Image": return branding?.signature2DataUrl ?? null;
-    default: return null;
+function resolveText(f: LayoutField, cert: CertificateInput, settings: ReturnType<typeof getDefaultSettings>): string {
+  // Custom text blocks have a staticText property
+  if (f.staticText !== undefined) return f.staticText;
+  switch (f.id) {
+    case "recipientName": return cert.recipientName;
+    case "programme":     return cert.programme;
+    case "issueDate":     return formatDate(cert.issueDate);
+    case "certificateId": return `ID: ${cert.certificateId}`;
+    case "signature1Name":  return settings.signatory1_name;
+    case "signature1Title": return settings.signatory1_title;
+    case "signature2Name":  return settings.signatory2_name;
+    case "signature2Title": return settings.signatory2_title;
+    default: return f.label ?? "";
   }
 }
 
-function drawField(doc: jsPDF, f: LayoutField, cert: CertificateInput, settings: ReturnType<typeof getDefaultSettings>, branding: Awaited<ReturnType<typeof loadBranding>> | null, qrDataUrl: string) {
+function resolveImageDataUrl(f: LayoutField, branding: Awaited<ReturnType<typeof loadBranding>> | null, qrDataUrl: string): string | null {
+  switch (f.id) {
+    case "qr":             return qrDataUrl;
+    case "seal":           return branding?.sealDataUrl ?? null;
+    case "signature1Image": return branding?.signatureDataUrl ?? null;
+    case "signature2Image": return branding?.signature2DataUrl ?? null;
+    default: return null; // custom image slots not yet backed by uploaded assets
+  }
+}
+
+function applyTextTransform(text: string, t?: LayoutField["textTransform"]): string {
+  if (t === "uppercase") return text.toUpperCase();
+  if (t === "lowercase") return text.toLowerCase();
+  return text;
+}
+
+function drawField(
+  doc: jsPDF,
+  f: LayoutField,
+  cert: CertificateInput,
+  settings: ReturnType<typeof getDefaultSettings>,
+  branding: Awaited<ReturnType<typeof loadBranding>> | null,
+  qrDataUrl: string,
+) {
   if (!f.visible) return;
   const xPt = mmToPt(f.x);
   const yPt = mmToPt(f.y);
   const wPt = mmToPt(f.w);
   const hPt = mmToPt(f.h);
 
-  if (f.kind === "image") {
-    const data = imageDataUrlFor(f.id, branding, qrDataUrl);
-    if (!data) return;
-    try { doc.addImage(data, "PNG", xPt, yPt, wPt, hPt); } catch {}
-    return;
+  const opacity = f.opacity ?? 1;
+  const hasOpacity = opacity < 0.999;
+  if (hasOpacity) {
+    doc.saveGraphicsState();
+    doc.setGState(new GState({ opacity }));
   }
 
-  const text = textValueFor(f.id, cert, settings);
-  if (!text) return;
-  doc.setFont(f.fontFamily ?? "helvetica", styleToJsPdf(f.fontStyle));
-  doc.setFontSize(f.fontSize ?? 11);
-  doc.setTextColor(...hexToRgb(f.color ?? "#282828"));
-  const align = f.align ?? "left";
-  // jsPDF text() y is the baseline. Place text centered vertically inside the field box.
-  const baselineY = yPt + Math.max(hPt * 0.75, (f.fontSize ?? 11) * 0.85);
-  let xText = xPt;
-  if (align === "center") xText = xPt + wPt / 2;
-  else if (align === "right") xText = xPt + wPt;
-  doc.text(text, xText, baselineY, { align, maxWidth: wPt });
+  try {
+    if (f.kind === "image") {
+      const data = resolveImageDataUrl(f, branding, qrDataUrl);
+      if (data) {
+        try { doc.addImage(data, "PNG", xPt, yPt, wPt, hPt); } catch {}
+      }
+    } else {
+      const rawText = resolveText(f, cert, settings);
+      if (rawText) {
+        const text = applyTextTransform(rawText, f.textTransform);
+        doc.setFont(f.fontFamily ?? "helvetica", styleToJsPdf(f.fontStyle));
+        doc.setFontSize(f.fontSize ?? 11);
+        doc.setTextColor(...hexToRgb(f.color ?? "#282828"));
+        if (f.letterSpacing) doc.setCharSpace(f.letterSpacing);
+        const align = f.align ?? "left";
+        const baselineY = yPt + Math.max(hPt * 0.75, (f.fontSize ?? 11) * 0.85);
+        let xText = xPt;
+        if (align === "center") xText = xPt + wPt / 2;
+        else if (align === "right") xText = xPt + wPt;
+        doc.text(text, xText, baselineY, { align, maxWidth: wPt });
+        if (f.letterSpacing) doc.setCharSpace(0);
+      }
+    }
+  } finally {
+    if (hasOpacity) doc.restoreGraphicsState();
+  }
 }
 
 export async function generateCertificatePdf(cert: CertificateInput): Promise<Blob> {
@@ -110,6 +151,7 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   const branding = await loadBranding().catch(() => null);
   const settings = branding?.settings ?? getDefaultSettings();
   const layout: TemplateLayout = branding?.layout ?? DEFAULT_LAYOUT;
+  const overlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
 
   // Background
   if (branding?.templateBgDataUrl) {
@@ -119,7 +161,6 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
       doc.rect(0, 0, W, H, "F");
     }
   } else {
-    // Fallback navy/gold frame so the certificate is still presentable without a template.
     doc.setFillColor(245, 241, 232);
     doc.rect(0, 0, W, H, "F");
     doc.setDrawColor(201, 164, 76);
@@ -136,7 +177,20 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
     doc.text("Certificate of Completion", W / 2, 100, { align: "center" });
   }
 
-  // QR code (always generated, placed via layout)
+  // UNZA logo watermark overlay
+  if (overlay.enabled && overlay.opacity > 0) {
+    const logoData = await fetchAsDataUrl(unzaLogo.url).catch(() => null);
+    if (logoData) {
+      doc.saveGraphicsState();
+      doc.setGState(new GState({ opacity: overlay.opacity }));
+      try {
+        doc.addImage(logoData, "PNG", mmToPt(overlay.x), mmToPt(overlay.y), mmToPt(overlay.w), mmToPt(overlay.h));
+      } catch {}
+      doc.restoreGraphicsState();
+    }
+  }
+
+  // QR code
   const url = verificationUrl(cert.certificateId);
   const qrDataUrl = await QRCode.toDataURL(url, {
     margin: 1, width: 320, color: { dark: "#0b1d3a", light: "#ffffff" },

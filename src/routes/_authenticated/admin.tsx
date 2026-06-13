@@ -76,10 +76,10 @@ function AdminPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <img src={unzaLogo.url} alt="UNZA" className="h-7 w-7 object-contain" />
-            <span className="font-display text-lg">{ORG_NAME} · Admin</span>
+        <div className="mx-auto max-w-7xl px-6 py-3 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-3">
+            <img src={unzaLogo.url} alt="UNZA" className="h-14 w-14 object-contain" />
+            <span className="font-display text-lg leading-tight">{ORG_NAME} · Admin</span>
           </Link>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-muted-foreground hidden sm:inline">{user?.email}</span>

@@ -26,23 +26,44 @@ export type FontStyle = "normal" | "bold" | "italic" | "bolditalic";
 export type TextAlign = "left" | "center" | "right";
 
 export interface LayoutField {
-  id: FieldId;
+  id: string;           // FieldId for predefined fields; "custom_N" for user-added blocks
+  label?: string;       // display name for custom fields
+  staticText?: string;  // the literal text for custom text blocks (not from cert data)
   kind: FieldKind;
   visible: boolean;
-  x: number; // mm, top-left
-  y: number; // mm, top-left
-  w: number; // mm
-  h: number; // mm
+  x: number;  // mm, top-left
+  y: number;  // mm, top-left
+  w: number;  // mm
+  h: number;  // mm
   fontFamily?: FontFamily;
   fontStyle?: FontStyle;
-  fontSize?: number; // pt
-  color?: string; // hex
+  fontSize?: number;   // pt
+  color?: string;      // hex
   align?: TextAlign;
+  letterSpacing?: number;  // pt, 0 = normal
+  textTransform?: "none" | "uppercase" | "lowercase";
+  opacity?: number;    // 0–1, default 1
 }
+
+export interface LogoOverlay {
+  enabled: boolean;
+  x: number;  // mm
+  y: number;  // mm
+  w: number;  // mm
+  h: number;  // mm
+  opacity: number;  // 0–1
+}
+
+export const DEFAULT_LOGO_OVERLAY: LogoOverlay = {
+  enabled: false,
+  x: 70, y: 100, w: 70, h: 70,
+  opacity: 0.08,
+};
 
 export interface TemplateLayout {
   version: 1;
   fields: LayoutField[];
+  logoOverlay?: LogoOverlay;
 }
 
 export const FIELD_LABELS: Record<FieldId, string> = {
@@ -75,6 +96,15 @@ export const FIELD_KINDS: Record<FieldId, FieldKind> = {
   signature2Title: "text",
 };
 
+export function getFieldLabel(f: LayoutField): string {
+  if (f.label) return f.label;
+  return FIELD_LABELS[f.id as FieldId] ?? f.id;
+}
+
+export function isPredefined(id: string): id is FieldId {
+  return id in FIELD_LABELS;
+}
+
 // Default layout mirrors the existing hardcoded design (centred portrait A4).
 export const DEFAULT_LAYOUT: TemplateLayout = {
   version: 1,
@@ -98,10 +128,21 @@ export function ensureLayout(raw: unknown): TemplateLayout {
   if (!raw || typeof raw !== "object") return DEFAULT_LAYOUT;
   const obj = raw as Partial<TemplateLayout>;
   if (obj.version !== 1 || !Array.isArray(obj.fields)) return DEFAULT_LAYOUT;
-  // Merge: any missing field falls back to default so newly-added fields still render.
-  const byId = new Map(obj.fields.map((f) => [f.id, f] as const));
-  const merged = DEFAULT_LAYOUT.fields.map((d) => ({ ...d, ...(byId.get(d.id) ?? {}) }));
-  return { version: 1, fields: merged };
+
+  const defaultById = new Map(DEFAULT_LAYOUT.fields.map((f) => [f.id, f]));
+
+  // Merge each saved field: predefined fields get missing defaults filled in;
+  // custom fields are kept as-is. Fields not present in saved are absent (user deleted them).
+  const fields: LayoutField[] = obj.fields.map((saved) => {
+    const def = defaultById.get(saved.id);
+    return def ? { ...def, ...saved } : { ...saved };
+  });
+
+  const logoOverlay: LogoOverlay = obj.logoOverlay
+    ? { ...DEFAULT_LOGO_OVERLAY, ...obj.logoOverlay }
+    : DEFAULT_LOGO_OVERLAY;
+
+  return { version: 1, fields, logoOverlay };
 }
 
 export function mmToPt(mm: number) { return mm * MM_TO_PT; }

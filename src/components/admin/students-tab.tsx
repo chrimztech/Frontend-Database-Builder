@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Shield } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Shield, ChevronDown, ChevronRight, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,10 +31,42 @@ type Student = {
   created_at: string;
 };
 
+type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
+type PaymentStatus  = "pending" | "paid" | "waived" | "free";
+
+type StudentEnrolment = {
+  id: string;
+  status: EnrolmentStatus;
+  enrolled_at: string;
+  completed_at: string | null;
+  certificate_id: string | null;
+  fee_charged: number | null;
+  payment_status: PaymentStatus;
+  course: { id: string; name: string; prefix: string } | null;
+};
+
+const STATUS_LABEL: Record<EnrolmentStatus, string> = {
+  enrolled: "Enrolled", in_progress: "In progress", completed: "Completed", certified: "Certified",
+};
+const STATUS_BADGE: Record<EnrolmentStatus, string> = {
+  enrolled: "bg-muted text-foreground",
+  in_progress: "bg-primary/15 text-primary",
+  completed: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  certified: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+};
+const PAY_LABEL: Record<PaymentStatus, string> = {
+  pending: "Pending", paid: "Paid", waived: "Waived", free: "Free",
+};
+const PAY_TONE: Record<PaymentStatus, string> = {
+  pending: "bg-amber-500/15 text-amber-700",
+  paid: "bg-emerald-500/15 text-emerald-700",
+  waived: "bg-muted text-muted-foreground",
+  free: "bg-sky-500/15 text-sky-700",
+};
+
 async function logAccess(action: "view" | "create" | "update" | "delete" | "export", studentId: string | null, detail?: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
-  // Best-effort — never block the UI for audit failures.
   await supabase.from("student_access_log").insert({
     student_id: studentId,
     actor_id: user.id,
@@ -121,6 +153,7 @@ export function StudentsTab() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-6" />
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Email</TableHead>
@@ -142,6 +175,26 @@ export function StudentsTab() {
 }
 
 function StudentRow({ student, onChange }: { student: Student; onChange: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const enrolments = useQuery({
+    queryKey: ["student-enrolments", student.id],
+    enabled: expanded,
+    queryFn: async () => {
+      await logAccess("view", student.id, "view courses");
+      const { data, error } = await supabase
+        .from("enrolments")
+        .select(`
+          id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
+          course:courses ( id, name, prefix )
+        `)
+        .eq("student_id", student.id)
+        .order("enrolled_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as StudentEnrolment[];
+    },
+  });
+
   async function remove() {
     if (!window.confirm(`Delete ${student.full_name}? Their enrolments will also be removed.`)) return;
     await logAccess("delete", student.id, student.full_name);
@@ -149,29 +202,111 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
     if (error) toast.error(error.message);
     else { toast.success("Student deleted"); onChange(); }
   }
+
   const idDisplay = student.category === "unza"
     ? (student.unza_student_id ?? "—")
     : (student.national_id ?? "—");
+
+  const enrolCount = enrolments.data?.length;
+
   return (
-    <TableRow>
-      <TableCell className="font-medium">{student.full_name}</TableCell>
-      <TableCell>
-        {student.category === "unza"
-          ? <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
-          : <Badge variant="outline">Non-UNZA</Badge>}
-      </TableCell>
-      <TableCell className="text-muted-foreground">{student.email ?? "—"}</TableCell>
-      <TableCell className="text-muted-foreground">{student.phone ?? "—"}</TableCell>
-      <TableCell className="text-muted-foreground font-mono text-xs">{idDisplay}</TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          <StudentDialog onSaved={onChange} student={student} trigger={
-            <Button size="sm" variant="ghost"><Pencil className="h-4 w-4" /></Button>
-          } />
-          <Button size="sm" variant="ghost" onClick={remove}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-        </div>
-      </TableCell>
-    </TableRow>
+    <>
+      <TableRow
+        className="cursor-pointer hover:bg-muted/50"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <TableCell className="pr-0">
+          {expanded
+            ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </TableCell>
+        <TableCell>
+          <div className="font-medium">{student.full_name}</div>
+          {expanded && enrolCount !== undefined && (
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {enrolCount === 0 ? "No enrolments" : `${enrolCount} course${enrolCount !== 1 ? "s" : ""}`}
+            </div>
+          )}
+        </TableCell>
+        <TableCell>
+          {student.category === "unza"
+            ? <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
+            : <Badge variant="outline">Non-UNZA</Badge>}
+        </TableCell>
+        <TableCell className="text-muted-foreground">{student.email ?? "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{student.phone ?? "—"}</TableCell>
+        <TableCell className="text-muted-foreground font-mono text-xs">{idDisplay}</TableCell>
+        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-end gap-1">
+            <StudentDialog onSaved={onChange} student={student} trigger={
+              <Button size="sm" variant="ghost"><Pencil className="h-4 w-4" /></Button>
+            } />
+            <Button size="sm" variant="ghost" onClick={remove}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        </TableCell>
+      </TableRow>
+
+      {expanded && (
+        <TableRow className="bg-muted/20 hover:bg-muted/20">
+          <TableCell colSpan={7} className="py-0">
+            <div className="px-8 py-3">
+              {enrolments.isLoading ? (
+                <p className="text-xs text-muted-foreground py-2">Loading courses…</p>
+              ) : !enrolments.data || enrolments.data.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2">
+                  This student has no enrolments yet. Go to the <strong>Enrolments</strong> tab to add one.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-muted-foreground">
+                      <th className="text-left py-1.5 pr-4 font-medium">Course</th>
+                      <th className="text-left py-1.5 pr-4 font-medium">Status</th>
+                      <th className="text-left py-1.5 pr-4 font-medium">Enrolled</th>
+                      <th className="text-left py-1.5 pr-4 font-medium">Fee</th>
+                      <th className="text-left py-1.5 pr-4 font-medium">Payment</th>
+                      <th className="text-left py-1.5 font-medium">Certificate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enrolments.data.map((e) => (
+                      <tr key={e.id} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">{e.course?.name ?? "—"}</td>
+                        <td className="py-2 pr-4">
+                          <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium ${STATUS_BADGE[e.status]}`}>
+                            {STATUS_LABEL[e.status]}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground text-xs">
+                          {new Date(e.enrolled_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground font-mono text-xs">
+                          {e.fee_charged != null ? `K${Number(e.fee_charged).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span className={`inline-block text-xs px-2 py-0.5 rounded ${PAY_TONE[e.payment_status]}`}>
+                            {PAY_LABEL[e.payment_status]}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          {e.status === "certified" && e.certificate_id ? (
+                            <span className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+                              <Award className="h-3.5 w-3.5" /> Issued
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 

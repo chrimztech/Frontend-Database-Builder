@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createCertificateWithCode } from "../certificate";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { signPayload, verifySignature } from "../certificate-signing";
+import { sendEmail, certificateEmailHtml } from "../email.server";
 
 export const generateCertificate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ enrolmentId: z.string().uuid() }))
@@ -68,6 +69,69 @@ export const signCertificate = createServerFn({ method: 'POST' })
     const { error: updateErr } = await (supabaseAdmin.from('certificates') as any).update({ signed_payload: payload, signature }).eq('id', certificateId);
     if (updateErr) throw updateErr;
     return { ok: true, signature };
+  });
+
+export const sendCertificateEmail = createServerFn({ method: "POST" })
+  .inputValidator(z.object({ certificateId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const { certificateId } = data;
+
+    // Load certificate + student details
+    const { data: cert, error: certErr } = await supabaseAdmin
+      .from("certificates")
+      .select("id, certificate_id, certificate_code, programme, recipient_name, recipient_email, issue_date, email_status")
+      .eq("id", certificateId)
+      .maybeSingle();
+    if (certErr) throw certErr;
+    if (!cert) throw new Error("Certificate not found");
+
+    const toEmail = (cert as any).recipient_email as string | null;
+    if (!toEmail) throw new Error("This certificate has no recipient email address — update the student record first.");
+
+    // Resolve the PDF storage path.
+    // Old flow stores as {certificate_id}.pdf; new flow uses {certificate_code}.
+    const pdfName = (cert as any).certificate_id ?? (cert as any).certificate_code;
+    if (!pdfName) throw new Error("Certificate has no ID or code — cannot locate PDF.");
+
+    // Download the PDF from the certificates storage bucket
+    const { data: pdfBlob, error: dlErr } = await supabaseAdmin.storage
+      .from("certificates")
+      .download(`${pdfName}.pdf`);
+    if (dlErr) throw new Error(`Could not retrieve PDF: ${dlErr.message}`);
+
+    const pdfBuffer = Buffer.from(await pdfBlob.arrayBuffer());
+
+    // Public URL for the PDF and verify link (from env or derived)
+    const supabaseUrl = process.env.SUPABASE_URL ?? "";
+    const pdfUrl = `${supabaseUrl}/storage/v1/object/public/certificates/${pdfName}.pdf`;
+    const appUrl = process.env.APP_URL ?? "https://tels.unza.ac.zm";
+    const code = (cert as any).certificate_code ?? (cert as any).certificate_id ?? "";
+    const verifyUrl = `${appUrl}/verify/${encodeURIComponent(code)}`;
+
+    const recipientName = (cert as any).recipient_name ?? "Student";
+    const programme = (cert as any).programme ?? "your programme";
+
+    await sendEmail({
+      to: toEmail,
+      subject: `Your Certificate — ${programme}`,
+      html: certificateEmailHtml({ recipientName, programme, certificateCode: code, pdfUrl, verifyUrl }),
+      text: `Dear ${recipientName},\n\nCongratulations! Your certificate for ${programme} has been issued.\n\nCertificate code: ${code}\nDownload: ${pdfUrl}\nVerify: ${verifyUrl}\n\nQuestions? Email train@unza.ac.zm or call +260 775 606 059.\n\nUNZA Technology e-Learning Services`,
+      attachments: [
+        {
+          filename: `Certificate-${pdfName}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    // Mark as sent
+    await supabaseAdmin
+      .from("certificates")
+      .update({ email_status: "sent" })
+      .eq("id", certificateId);
+
+    return { ok: true, sentTo: toEmail };
   });
 
 export const verifyCertificateByCode = createServerFn({ method: 'POST' })
