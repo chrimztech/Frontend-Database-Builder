@@ -1,16 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, GraduationCap, Award, Mail, Clock, BookOpen } from "lucide-react";
+import { Users, GraduationCap, Award, Mail, Clock, BookOpen, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-function StatCard({ icon: Icon, label, value, hint }: { icon: any; label: string; value: number | string; hint?: string }) {
+type StatCardProps = {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number | string;
+  hint?: string;
+  accent?: boolean;
+};
+
+function StatCard({ icon: Icon, label, value, hint, accent }: StatCardProps) {
   return (
-    <div className="rounded-lg border bg-card p-5">
-      <div className="flex items-center gap-2 text-muted-foreground text-sm">
+    <div className={`rounded-xl border bg-card p-5 flex flex-col gap-3 shadow-sm ${accent ? "border-gold/40" : ""}`}>
+      <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${accent ? "bg-gold/15 text-gold" : "bg-muted text-muted-foreground"}`}>
         <Icon className="h-4 w-4" />
-        {label}
       </div>
-      <div className="mt-2 text-3xl font-display">{value}</div>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      <div>
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <p className="text-3xl font-display mt-0.5">{value}</p>
+        {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
+      </div>
     </div>
   );
 }
@@ -41,22 +51,62 @@ export function OverviewTab() {
   });
 
   const d = stats.data;
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Users} label="Students" value={d?.students ?? "—"} />
-        <StatCard icon={BookOpen} label="Courses" value={d?.courses ?? "—"} />
-        <StatCard icon={GraduationCap} label="In training" value={d?.inTraining ?? "—"} hint="enrolled + in progress" />
-        <StatCard icon={Clock} label="Awaiting certificate" value={d?.awaitingCert ?? "—"} hint="completed, not yet certified" />
-        <StatCard icon={Award} label="Certificates issued" value={d?.certsTotal ?? "—"} />
-        <StatCard icon={Award} label="Valid" value={d?.certsValid ?? "—"} />
-        <StatCard icon={Mail} label="Emails sent" value={d?.certsSent ?? "—"} />
-        <StatCard icon={Mail} label="Pending email" value={d?.certsPending ?? "—"} />
+    <div className="space-y-8">
+      {/* Welcome banner */}
+      <div
+        className="rounded-xl p-6 text-white relative overflow-hidden"
+        style={{ background: "var(--navy)" }}
+      >
+        <div className="absolute inset-0 opacity-[0.04]" style={{
+          backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
+          backgroundSize: "24px 24px",
+        }} />
+        <div className="relative">
+          <p className="text-xs font-semibold uppercase tracking-widest text-white/50 mb-1">Dashboard</p>
+          <h2 className="font-display text-2xl text-white mb-1">Welcome back</h2>
+          <p className="text-sm text-white/60">
+            University of Zambia · Technology e-Learning Services
+          </p>
+        </div>
+        <div className="absolute right-6 top-1/2 -translate-y-1/2 opacity-10">
+          <TrendingUp className="h-20 w-20" />
+        </div>
       </div>
-      <div className="rounded-lg border bg-card p-5 text-sm text-muted-foreground">
-        Use the tabs above to manage students, courses, enrolments, and certificates. Once a student completes training, mark
-        their enrolment as <strong>Completed</strong> and click <strong>Generate certificate</strong> — it will create a
-        unique ID using the course prefix, save the PDF, and let you email it to the student.
+
+      {/* Primary stats */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">At a glance</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Users}        label="Students"              value={d?.students ?? "—"} />
+          <StatCard icon={BookOpen}     label="Courses"               value={d?.courses ?? "—"} />
+          <StatCard icon={GraduationCap} label="In training"          value={d?.inTraining ?? "—"} hint="enrolled + in progress" />
+          <StatCard icon={Clock}        label="Awaiting certificate"  value={d?.awaitingCert ?? "—"} hint="completed, not yet certified" />
+        </div>
+      </div>
+
+      {/* Certificate stats */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Certificates</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Award} label="Issued"        value={d?.certsTotal ?? "—"} accent />
+          <StatCard icon={Award} label="Valid"          value={d?.certsValid ?? "—"} accent />
+          <StatCard icon={Mail}  label="Emails sent"   value={d?.certsSent ?? "—"} />
+          <StatCard icon={Mail}  label="Pending email" value={d?.certsPending ?? "—"} />
+        </div>
+      </div>
+
+      {/* Quick guide */}
+      <div className="rounded-xl border bg-card p-5">
+        <p className="text-sm font-semibold mb-2">Quick guide</p>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Use the sidebar to manage students, courses, enrolments, and certificates. Once a student
+          completes training, mark their enrolment as <strong className="text-foreground">Completed</strong> then
+          click <strong className="text-foreground">Generate certificate</strong> — it creates a unique
+          code using the course prefix, saves the PDF to storage, and lets you email it directly
+          from the <strong className="text-foreground">Email queue</strong> section.
+        </p>
       </div>
     </div>
   );
