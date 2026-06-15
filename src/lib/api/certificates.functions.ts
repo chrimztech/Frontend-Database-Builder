@@ -25,6 +25,7 @@ export const generateCertificate = createServerFn({ method: "POST" })
       recipientName: student?.full_name ?? null,
       programme: course?.name ?? null,
       nationalId: student?.national_id ?? null,
+      coursePrefix: (course as any)?.prefix ?? null,
     });
 
     return cert;

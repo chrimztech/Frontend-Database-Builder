@@ -26,7 +26,7 @@ import { getCssFontFamily } from "@/lib/font-loader";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 const SAMPLE = {
-  certificateId: "202606130000001",
+  certificateId: "SCM20260000001",
   recipientName: "Jane Doe",
   programme: "Web Development Fundamentals",
   issueDate: "2026-06-13",
@@ -580,7 +580,7 @@ const PREVIEW_TEXT: Partial<Record<string, string>> = {
   recipientName:   "Jane Doe",
   programme:       "Web Development Fundamentals",
   issueDate:       "June 13, 2026",
-  certificateId:   "ID: 202606130000001",
+  certificateId:   "ID: SCM20260000001",
   nrcNumber:       "NRC: 123456/78/9",
   qr:              "QR",
   seal:            "SEAL",
