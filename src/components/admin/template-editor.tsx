@@ -21,6 +21,7 @@ import {
   type FieldId, type LayoutField, type LogoOverlay, type TemplateLayout,
 } from "@/lib/template-layout";
 import { loadBranding, saveTemplateLayout, clearBrandingCache } from "@/lib/branding";
+import { renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
 import { downloadCertificatePdf } from "@/lib/pdf";
 import { getCssFontFamily } from "@/lib/font-loader";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
@@ -116,7 +117,17 @@ export function TemplateEditor() {
         histIdxRef.current = 0;
         layoutRef.current = loaded;
         setLayout(loaded);
-        setBgUrl(b.templateBgDataUrl);
+        if (b.templateBgDataUrl) {
+          setBgUrl(b.templateBgDataUrl);
+        } else if (b.templateBgBlob) {
+          const renderedBg = await renderPdfBlobPageToDataUrl(b.templateBgBlob, {
+            targetWidth: 1240,
+            targetHeight: 1754,
+          });
+          setBgUrl(renderedBg);
+        } else {
+          setBgUrl(null);
+        }
         setSealUrl(b.sealDataUrl);
         setSig1Url(b.signatureDataUrl);
         setSig2Url(b.signature2DataUrl);

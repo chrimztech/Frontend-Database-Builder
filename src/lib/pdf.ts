@@ -3,6 +3,7 @@ import { jsPDF, GState } from "jspdf";
 import QRCode from "qrcode";
 import { verificationUrl } from "./cert";
 import { loadBranding } from "./branding";
+import { isPdfMimeType, renderPdfBlobPageToDataUrl } from "./pdf-like";
 import { DEFAULT_LAYOUT, DEFAULT_LOGO_OVERLAY, mmToPt, type LayoutField, type TemplateLayout } from "./template-layout";
 import { registerCustomFontsInDoc } from "./font-loader";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
@@ -167,8 +168,17 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   await registerCustomFontsInDoc(doc, fontFamiliesUsed);
 
   // Background
-  if (branding?.templateBgDataUrl) {
-    try { doc.addImage(branding.templateBgDataUrl, "PNG", 0, 0, W, H); }
+  const backgroundDataUrl =
+    branding?.templateBgDataUrl ||
+    (branding?.templateBgBlob && isPdfMimeType(branding.templateBgMimeType)
+      ? await renderPdfBlobPageToDataUrl(branding.templateBgBlob, {
+          targetWidth: 2480,
+          targetHeight: 3508,
+        }).catch(() => null)
+      : null);
+
+  if (backgroundDataUrl) {
+    try { doc.addImage(backgroundDataUrl, "PNG", 0, 0, W, H); }
     catch {
       doc.setFillColor(245, 241, 232);
       doc.rect(0, 0, W, H, "F");

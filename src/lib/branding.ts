@@ -1,5 +1,6 @@
 // Helpers to load branding assets + org settings used by the PDF generator.
 import { supabase } from "@/integrations/supabase/client";
+import { blobToDataUrl, isPdfMimeType } from "./pdf-like";
 import { ensureLayout, type TemplateLayout } from "./template-layout";
 
 export const BRANDING_BUCKET = "branding";
@@ -8,15 +9,10 @@ export const SIGNATURE_PATH = "signature.png";          // signatory #1
 export const SIGNATURE2_PATH = "signature2.png";        // signatory #2
 export const TEMPLATE_BG_PATH = "template-background.png";
 
-async function downloadAsDataUrl(path: string): Promise<string | null> {
+async function downloadBlob(path: string): Promise<Blob | null> {
   const { data, error } = await supabase.storage.from(BRANDING_BUCKET).download(path);
   if (error || !data) return null;
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(data);
-  });
+  return data;
 }
 
 export interface OrgSettings {
@@ -32,7 +28,9 @@ export interface BrandingAssets {
   sealDataUrl: string | null;
   signatureDataUrl: string | null;
   signature2DataUrl: string | null;
+  templateBgBlob: Blob | null;
   templateBgDataUrl: string | null;
+  templateBgMimeType: string | null;
   settings: OrgSettings;
   layout: TemplateLayout;
   hasCustomLayout: boolean;
@@ -52,12 +50,20 @@ const TTL = 30_000;
 
 export async function loadBranding(): Promise<BrandingAssets> {
   if (cache && Date.now() - cache.at < TTL) return cache.assets;
-  const [seal, signature, signature2, bg, settingsRes] = await Promise.all([
-    downloadAsDataUrl(SEAL_PATH).catch(() => null),
-    downloadAsDataUrl(SIGNATURE_PATH).catch(() => null),
-    downloadAsDataUrl(SIGNATURE2_PATH).catch(() => null),
-    downloadAsDataUrl(TEMPLATE_BG_PATH).catch(() => null),
+  const [sealBlob, signatureBlob, signature2Blob, bgBlob, settingsRes] = await Promise.all([
+    downloadBlob(SEAL_PATH).catch(() => null),
+    downloadBlob(SIGNATURE_PATH).catch(() => null),
+    downloadBlob(SIGNATURE2_PATH).catch(() => null),
+    downloadBlob(TEMPLATE_BG_PATH).catch(() => null),
     supabase.from("org_settings").select("*").eq("id", true).maybeSingle(),
+  ]);
+  const [seal, signature, signature2, bg] = await Promise.all([
+    sealBlob ? blobToDataUrl(sealBlob).catch(() => null) : Promise.resolve(null),
+    signatureBlob ? blobToDataUrl(signatureBlob).catch(() => null) : Promise.resolve(null),
+    signature2Blob ? blobToDataUrl(signature2Blob).catch(() => null) : Promise.resolve(null),
+    bgBlob && !isPdfMimeType(bgBlob.type)
+      ? blobToDataUrl(bgBlob).catch(() => null)
+      : Promise.resolve(null),
   ]);
   const row = (settingsRes.data ?? null) as (OrgSettings & { template_layout?: unknown }) | null;
   const settings: OrgSettings = row ? {
@@ -73,7 +79,9 @@ export async function loadBranding(): Promise<BrandingAssets> {
     sealDataUrl: seal,
     signatureDataUrl: signature,
     signature2DataUrl: signature2,
+    templateBgBlob: bgBlob,
     templateBgDataUrl: bg,
+    templateBgMimeType: bgBlob?.type || null,
     settings,
     layout: ensureLayout(rawLayout),
     hasCustomLayout: !!rawLayout,

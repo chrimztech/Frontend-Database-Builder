@@ -33,8 +33,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { generateCertificateId, ORG_NAME } from "@/lib/cert";
 import { uploadCertificatePdf } from "@/lib/pdf";
+import { generateCertificate as generateCertificateServer } from "@/lib/api/certificates.functions";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -58,6 +58,7 @@ type Enrolment = {
     id: string;
     full_name: string;
     email: string | null;
+    national_id: string | null;
     category: "unza" | "non_unza";
   } | null;
   course: {
@@ -120,7 +121,7 @@ export function EnrolmentsTab() {
         .select(
           `
           id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
-          student:students ( id, full_name, email, category ),
+          student:students ( id, full_name, email, national_id, category ),
           course:courses ( id, name, prefix, fee_unza, fee_non_unza )
         `,
         )
@@ -253,62 +254,33 @@ function EnrolRow({
   }
 
   async function generateCertificate() {
-    if (!enrolment.student || !enrolment.course) {
-      return;
-    }
-
+    if (!enrolment.student || !enrolment.course) return;
     setBusy(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error("Not signed in");
-      }
+      // Server function: allocates counter, builds correct code (PREFIX+YYYY+seq), stores NRC
+      const cert = await generateCertificateServer({ data: { enrolmentId: enrolment.id } });
 
-      const certificateId = generateCertificateId(
-        new Date().getFullYear(),
-        enrolment.course.prefix,
-      );
       const issueDate = new Date().toISOString().slice(0, 10);
-      const { data: cert, error } = await supabase
-        .from("certificates")
-        .insert({
-          certificate_id: certificateId,
-          recipient_name: enrolment.student.full_name,
-          recipient_email: enrolment.student.email,
-          programme: enrolment.course.name,
-          issue_date: issueDate,
-          issuer_name: ORG_NAME,
-          issued_by: user.id,
-          course_id: enrolment.course.id,
-          student_id: enrolment.student.id,
-        })
-        .select()
-        .single();
 
-      if (error) {
-        throw error;
-      }
-
+      // Generate and upload PDF client-side
       await uploadCertificatePdf({
-        certificateId: cert.certificate_id,
-        recipientName: cert.recipient_name,
-        programme: cert.programme,
-        issueDate: cert.issue_date,
-        issuerName: cert.issuer_name,
+        certificateId: cert.certificate_code,
+        recipientName: enrolment.student.full_name,
+        programme: enrolment.course.name,
+        issueDate,
+        nrcNumber: enrolment.student.national_id ?? undefined,
       });
 
+      // Mark enrolment as certified
       await supabase
         .from("enrolments")
         .update({
           status: "certified",
-          certificate_id: cert.id,
           completed_at: enrolment.completed_at ?? new Date().toISOString(),
         })
         .eq("id", enrolment.id);
 
-      toast.success(`Certificate ${cert.certificate_id} generated`);
+      toast.success(`Certificate ${cert.certificate_code} generated`);
       onChange();
     } catch (error: any) {
       toast.error(error.message ?? "Failed to generate");

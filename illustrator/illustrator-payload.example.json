@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-15T00:00:00.000Z",
+  "documentProfile": {
+    "textFrameNames": [
+      "org_name",
+      "certificate_title",
+      "certificate_subtitle",
+      "recipient_name",
+      "programme_name",
+      "issue_date",
+      "signatory1_name",
+      "signatory1_title",
+      "signatory2_name",
+      "signatory2_title",
+      "certificate_id",
+      "nrc_number",
+      "footer_text"
+    ],
+    "placedItemNames": [
+      "logo_asset",
+      "seal_asset",
+      "signature1_asset",
+      "signature2_asset"
+    ]
+  },
+  "notes": [
+    "Rename Illustrator text frames and placed items to match the keys in this file.",
+    "Placed item values must be absolute local file paths on the computer running Illustrator.",
+    "Values wrapped in double braces are placeholders you should replace before running the Illustrator script."
+  ],
+  "textFrames": {
+    "org_name": "Your Organization",
+    "certificate_title": "Certificate of Completion",
+    "certificate_subtitle": "Presented in recognition of successful course completion",
+    "recipient_name": "{{recipient_name}}",
+    "programme_name": "{{programme_name}}",
+    "issue_date": "{{issue_date}}",
+    "signatory1_name": "Authorized Signatory",
+    "signatory1_title": "Director",
+    "signatory2_name": "Authorized Signatory",
+    "signatory2_title": "Programme Lead",
+    "certificate_id": "{{certificate_id}}",
+    "nrc_number": "{{nrc_number}}",
+    "footer_text": "Issued by Your Organization"
+  },
+  "placedItems": {
+    "logo_asset": "",
+    "seal_asset": "",
+    "signature1_asset": "",
+    "signature2_asset": ""
+  }
+}
