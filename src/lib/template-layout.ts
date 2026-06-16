@@ -20,7 +20,7 @@ export type FieldId =
   | "signature2Name"
   | "signature2Title";
 
-export type FieldKind = "text" | "image";
+export type FieldKind = "text" | "image" | "shape";
 
 export type FontFamily = "helvetica" | "times" | "courier" | "cormorant" | "playfair" | "manrope" | "lato" | "cinzel";
 export type FontStyle = "normal" | "bold" | "italic" | "bolditalic";
@@ -150,3 +150,7 @@ export function ensureLayout(raw: unknown): TemplateLayout {
 }
 
 export function mmToPt(mm: number) { return mm * MM_TO_PT; }
+
+export interface LayoutField {
+  fillColor?: string;
+}

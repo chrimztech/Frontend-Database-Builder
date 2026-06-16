@@ -1,6 +1,6 @@
 // Helpers to load branding assets + org settings used by the PDF generator.
 import { supabase } from "@/integrations/supabase/client";
-import { blobToDataUrl, isPdfMimeType } from "./pdf-like";
+import { blobToDataUrl, isPdfMimeType, isSvgMimeType } from "./pdf-like";
 import { ensureLayout, type TemplateLayout } from "./template-layout";
 
 export const BRANDING_BUCKET = "branding";
@@ -31,6 +31,7 @@ export interface BrandingAssets {
   templateBgBlob: Blob | null;
   templateBgDataUrl: string | null;
   templateBgMimeType: string | null;
+  templateBgSvgMarkup: string | null;
   settings: OrgSettings;
   layout: TemplateLayout;
   hasCustomLayout: boolean;
@@ -65,6 +66,10 @@ export async function loadBranding(): Promise<BrandingAssets> {
       ? blobToDataUrl(bgBlob).catch(() => null)
       : Promise.resolve(null),
   ]);
+  const bgSvgMarkup =
+    bgBlob && isSvgMimeType(bgBlob.type)
+      ? await bgBlob.text().catch(() => null)
+      : null;
   const row = (settingsRes.data ?? null) as (OrgSettings & { template_layout?: unknown }) | null;
   const settings: OrgSettings = row ? {
     org_name: row.org_name,
@@ -82,6 +87,7 @@ export async function loadBranding(): Promise<BrandingAssets> {
     templateBgBlob: bgBlob,
     templateBgDataUrl: bg,
     templateBgMimeType: bgBlob?.type || null,
+    templateBgSvgMarkup: bgSvgMarkup,
     settings,
     layout: ensureLayout(rawLayout),
     hasCustomLayout: !!rawLayout,

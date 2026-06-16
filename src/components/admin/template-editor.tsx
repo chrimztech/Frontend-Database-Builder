@@ -2,9 +2,10 @@
 import { toast } from "sonner";
 import {
   Save, RotateCcw, Eye, EyeOff, Download, Undo2, Redo2,
-  ZoomIn, ZoomOut, AlignCenter, AlignCenterHorizontal, Trash2, Plus, Image as ImageIcon,
+  ZoomIn, ZoomOut, AlignCenter, AlignCenterHorizontal, Trash2, Plus, Image as ImageIcon, Square,
 } from "lucide-react";
 
+import { SvgBackgroundPanel } from "@/components/admin/svg-background-panel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -20,10 +21,21 @@ import {
   getFieldLabel, isPredefined,
   type FieldId, type LayoutField, type LogoOverlay, type TemplateLayout,
 } from "@/lib/template-layout";
-import { loadBranding, saveTemplateLayout, clearBrandingCache } from "@/lib/branding";
+import {
+  TEMPLATE_BG_PATH,
+  clearBrandingCache,
+  loadBranding,
+  saveTemplateLayout,
+  uploadBrandingFile,
+} from "@/lib/branding";
 import { renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
 import { downloadCertificatePdf } from "@/lib/pdf";
 import { getCssFontFamily } from "@/lib/font-loader";
+import {
+  inspectEditableSvgMarkup,
+  replaceSvgImageItemFromFile,
+  updateSvgItem,
+} from "@/lib/svg-template";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 const SAMPLE = {
@@ -70,10 +82,18 @@ function nextCustomId() { return `custom_${++customCounter}`; }
 export function TemplateEditor() {
   const [layout, setLayout] = useState<TemplateLayout>(DEFAULT_LAYOUT);
   const [bgUrl, setBgUrl] = useState<string | null>(null);
+  const [bgSvgMarkup, setBgSvgMarkup] = useState<string | null>(null);
   const [sealUrl, setSealUrl] = useState<string | null>(null);
   const [sig1Url, setSig1Url] = useState<string | null>(null);
   const [sig2Url, setSig2Url] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedSvgKey, setSelectedSvgKey] = useState<string | null>(null);
+  const [selectedSvgBox, setSelectedSvgBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [snapGrid, setSnapGrid] = useState(false);
@@ -87,7 +107,9 @@ export function TemplateEditor() {
   useEffect(() => { layoutRef.current = layout; }, [layout]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const svgPreviewRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(2.1);
+  const originalBgSvgRef = useRef<string | null>(null);
 
   useEffect(() => {
     function recompute() {
@@ -105,6 +127,15 @@ export function TemplateEditor() {
   const effectiveScale = scale * zoom;
   const canvasW = A4_MM.w * effectiveScale;
   const canvasH = A4_MM.h * effectiveScale;
+  const editableBgSvg = useMemo(() => {
+    if (!bgSvgMarkup) return null;
+    try {
+      return inspectEditableSvgMarkup(bgSvgMarkup);
+    } catch {
+      return null;
+    }
+  }, [bgSvgMarkup]);
+  const bgSvgDirty = (bgSvgMarkup ?? null) !== (originalBgSvgRef.current ?? null);
 
   const snap = useCallback((v: number) => snapGrid ? Math.round(v) : Math.round(v * 10) / 10, [snapGrid]);
 
@@ -117,6 +148,14 @@ export function TemplateEditor() {
         histIdxRef.current = 0;
         layoutRef.current = loaded;
         setLayout(loaded);
+        if (b.templateBgSvgMarkup) {
+          setBgSvgMarkup(b.templateBgSvgMarkup);
+          originalBgSvgRef.current = b.templateBgSvgMarkup;
+        } else {
+          setBgSvgMarkup(null);
+          originalBgSvgRef.current = null;
+        }
+
         if (b.templateBgDataUrl) {
           setBgUrl(b.templateBgDataUrl);
         } else if (b.templateBgBlob) {
@@ -131,6 +170,8 @@ export function TemplateEditor() {
         setSealUrl(b.sealDataUrl);
         setSig1Url(b.signatureDataUrl);
         setSig2Url(b.signature2DataUrl);
+        setSelectedSvgKey(null);
+        setSelectedSvgBox(null);
         setCanUndo(false);
         setCanRedo(false);
       } catch (e: any) {
@@ -140,6 +181,74 @@ export function TemplateEditor() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!editableBgSvg?.items.length) {
+      setSelectedSvgKey(null);
+      setSelectedSvgBox(null);
+      return;
+    }
+
+    if (
+      !selectedSvgKey ||
+      !editableBgSvg.items.some((item) => item.key === selectedSvgKey)
+    ) {
+      setSelectedSvgKey(editableBgSvg.items[0]?.key ?? null);
+    }
+  }, [editableBgSvg, selectedSvgKey]);
+
+  useEffect(() => {
+    const host = svgPreviewRef.current;
+    const svgEl = host?.querySelector("svg") as SVGSVGElement | null;
+    if (!host || !svgEl) {
+      setSelectedSvgBox(null);
+      return;
+    }
+
+    svgEl.style.width = "100%";
+    svgEl.style.height = "100%";
+    svgEl.style.display = "block";
+
+    for (const editableEl of Array.from(
+      svgEl.querySelectorAll("[data-svg-editable='true']"),
+    )) {
+      (editableEl as HTMLElement).style.cursor = "pointer";
+    }
+
+    if (!selectedSvgKey) {
+      setSelectedSvgBox(null);
+      return;
+    }
+
+    const selectedSvgEl = svgEl.querySelector(
+      `[data-editor-key="${selectedSvgKey}"]`,
+    ) as SVGGraphicsElement | null;
+
+    if (!selectedSvgEl) {
+      setSelectedSvgBox(null);
+      return;
+    }
+
+    try {
+      const bbox = selectedSvgEl.getBBox();
+      const viewBox = svgEl.viewBox.baseVal;
+      const vbX = viewBox?.x ?? 0;
+      const vbY = viewBox?.y ?? 0;
+      const vbWidth = viewBox?.width || svgEl.clientWidth || 1;
+      const vbHeight = viewBox?.height || svgEl.clientHeight || 1;
+      const scaleX = svgEl.clientWidth / vbWidth;
+      const scaleY = svgEl.clientHeight / vbHeight;
+
+      setSelectedSvgBox({
+        left: (bbox.x - vbX) * scaleX,
+        top: (bbox.y - vbY) * scaleY,
+        width: Math.max(bbox.width * scaleX, 12),
+        height: Math.max(bbox.height * scaleY, 12),
+      });
+    } catch {
+      setSelectedSvgBox(null);
+    }
+  }, [editableBgSvg?.markup, selectedSvgKey, canvasW, canvasH]);
 
   // History
   function syncUndoRedo() {
@@ -246,6 +355,57 @@ export function TemplateEditor() {
     setSelected(id);
   }
 
+  function addCustomShape() {
+    const id = nextCustomId();
+    const newField: LayoutField = {
+      id,
+      label: "Mask box",
+      kind: "shape",
+      visible: true,
+      x: 20,
+      y: 20,
+      w: 45,
+      h: 12,
+      fillColor: "#ffffff",
+      opacity: 1,
+    };
+    const current = layoutRef.current;
+    pushLayout({ ...current, fields: [...current.fields, newField] });
+    setSelected(id);
+  }
+
+  function updateBackgroundSvgItem(
+    key: string,
+    patch: Parameters<typeof updateSvgItem>[2],
+  ) {
+    if (!bgSvgMarkup) return;
+    setBgSvgMarkup(updateSvgItem(bgSvgMarkup, key, patch));
+  }
+
+  async function replaceBackgroundSvgImage(key: string, file: File | null) {
+    if (!bgSvgMarkup || !file) return;
+
+    try {
+      const nextMarkup = await replaceSvgImageItemFromFile(bgSvgMarkup, key, file);
+      setBgSvgMarkup(nextMarkup);
+      toast.success("SVG image layer updated");
+    } catch (error: any) {
+      toast.error(error.message ?? "Could not replace the SVG image layer");
+    }
+  }
+
+  async function persistSvgBackgroundIfNeeded() {
+    if (!bgSvgMarkup || !bgSvgDirty) return;
+
+    const file = new File([bgSvgMarkup], "template-background.svg", {
+      type: "image/svg+xml",
+    });
+
+    await uploadBrandingFile(TEMPLATE_BG_PATH, file);
+    originalBgSvgRef.current = bgSvgMarkup;
+    clearBrandingCache();
+  }
+
   // Logo overlay
   const logoOverlay: LogoOverlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
 
@@ -290,30 +450,60 @@ export function TemplateEditor() {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && !e.shiftKey && e.key === "z") { e.preventDefault(); undo(); return; }
       if (mod && (e.key === "y" || (e.shiftKey && e.key === "z"))) { e.preventDefault(); redo(); return; }
-      if (e.key === "Escape") { setSelected(null); return; }
-      if (!selected) return;
-      const step = e.shiftKey ? 5 : 0.5;
-      const f = layoutRef.current.fields.find((f) => f.id === selected);
-      if (!f) return;
-      const moves: Record<string, Partial<LayoutField>> = {
-        ArrowLeft:  { x: Math.max(0, f.x - step) },
-        ArrowRight: { x: Math.min(A4_MM.w - f.w, f.x + step) },
-        ArrowUp:    { y: Math.max(0, f.y - step) },
-        ArrowDown:  { y: Math.min(A4_MM.h - f.h, f.y + step) },
+      if (e.key === "Escape") {
+        setSelected(null);
+        setSelectedSvgKey(null);
+        return;
+      }
+
+      if (selected) {
+        const step = e.shiftKey ? 5 : 0.5;
+        const f = layoutRef.current.fields.find((f) => f.id === selected);
+        if (!f) return;
+        const moves: Record<string, Partial<LayoutField>> = {
+          ArrowLeft:  { x: Math.max(0, f.x - step) },
+          ArrowRight: { x: Math.min(A4_MM.w - f.w, f.x + step) },
+          ArrowUp:    { y: Math.max(0, f.y - step) },
+          ArrowDown:  { y: Math.min(A4_MM.h - f.h, f.y + step) },
+        };
+        if (e.key in moves) {
+          e.preventDefault();
+          updateField(selected, moves[e.key]);
+        }
+        return;
+      }
+
+      if (!selectedSvgKey || !bgSvgMarkup) return;
+      const svgItem = editableBgSvg?.items.find((item) => item.key === selectedSvgKey);
+      if (!svgItem) return;
+
+      const step = e.shiftKey ? 10 : 1;
+      const nextMoves: Record<string, { x?: number; y?: number }> = {
+        ArrowLeft: { x: (svgItem.x ?? 0) - step },
+        ArrowRight: { x: (svgItem.x ?? 0) + step },
+        ArrowUp: { y: (svgItem.y ?? 0) - step },
+        ArrowDown: { y: (svgItem.y ?? 0) + step },
       };
-      if (e.key in moves) { e.preventDefault(); updateField(selected, moves[e.key]); }
+
+      if (e.key in nextMoves) {
+        e.preventDefault();
+        setBgSvgMarkup(updateSvgItem(bgSvgMarkup, selectedSvgKey, nextMoves[e.key]));
+      }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected]);
+  }, [bgSvgMarkup, editableBgSvg, selected, selectedSvgKey]);
 
   // Save / Reset / Preview
   async function onSave() {
     setSaving(true);
     try {
+      await persistSvgBackgroundIfNeeded();
       await saveTemplateLayout(layout);
       clearBrandingCache();
-      toast.success("Template layout saved");
+      toast.success(
+        bgSvgDirty ? "Template layout and SVG background saved" : "Template layout saved",
+      );
     } catch (e: any) {
       toast.error(e.message ?? "Failed to save");
     } finally { setSaving(false); }
@@ -328,12 +518,29 @@ export function TemplateEditor() {
   async function onPreviewPdf() {
     toast.message("Generating preview PDF...");
     try {
+      await persistSvgBackgroundIfNeeded();
       await saveTemplateLayout(layout);
       clearBrandingCache();
       await downloadCertificatePdf(SAMPLE);
     } catch (e: any) {
       toast.error(e.message ?? "Preview failed");
     }
+  }
+
+  function onSvgCanvasClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as Element | null;
+    const svgItemEl = target?.closest?.("[data-editor-key]") as Element | null;
+    if (!svgItemEl) {
+      setSelected(null);
+      setSelectedSvgKey(null);
+      return;
+    }
+
+    const key = svgItemEl.getAttribute("data-editor-key");
+    if (!key) return;
+    setSelected(null);
+    setSelectedSvgKey(key);
+    e.stopPropagation();
   }
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading template editor...</div>;
@@ -345,7 +552,9 @@ export function TemplateEditor() {
         <div>
           <p className="kicker">Template editor</p>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Drag fields on the canvas. Add or delete fields in the panel. Arrow keys nudge selected fields (Shift = 5mm).
+            Drag fields on the canvas. Add or delete fields in the panel. If the
+            background is an SVG, you can also click its text and image layers to
+            edit them here. Arrow keys nudge the selected item.
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -368,9 +577,20 @@ export function TemplateEditor() {
         </div>
       </div>
 
-      {!bgUrl && (
+      {!bgUrl && !editableBgSvg?.markup && (
         <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
           No certificate background uploaded yet - upload in the <span className="font-medium">Branding</span> tab.
+        </div>
+      )}
+
+      {bgUrl && !editableBgSvg?.markup && (
+        <div className="rounded-md border p-3 text-sm text-muted-foreground bg-muted/20">
+          This uploaded background is being shown as a flat preview. To edit
+          background text or logos in the browser, upload the certificate background
+          as an <span className="font-medium">SVG</span> from Illustrator. If you
+          must stay with AI/PDF, use <span className="font-medium">Mask box</span> plus
+          <span className="font-medium"> Custom text</span> to cover and replace
+          baked-in content.
         </div>
       )}
 
@@ -408,13 +628,37 @@ export function TemplateEditor() {
                 ref={canvasRef}
                 className="relative shadow-lg bg-white"
                 style={{ width: canvasW, height: canvasH }}
-                onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setSelected(null);
+                    setSelectedSvgKey(null);
+                  }
+                }}
               >
-                {bgUrl && (
+                {editableBgSvg?.markup ? (
+                  <div
+                    ref={svgPreviewRef}
+                    className="absolute inset-0 select-none"
+                    onClick={onSvgCanvasClick}
+                    dangerouslySetInnerHTML={{ __html: editableBgSvg.markup }}
+                  />
+                ) : bgUrl ? (
                   <img src={bgUrl} alt="Template"
                     className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none"
                     draggable={false} />
-                )}
+                ) : null}
+
+                {selectedSvgBox ? (
+                  <div
+                    className="pointer-events-none absolute rounded border-2 border-sky-500 shadow-[0_0_0_9999px_rgba(14,165,233,0.05)]"
+                    style={{
+                      left: selectedSvgBox.left,
+                      top: selectedSvgBox.top,
+                      width: selectedSvgBox.width,
+                      height: selectedSvgBox.height,
+                    }}
+                  />
+                ) : null}
 
                 {/* UNZA logo overlay (watermark) */}
                 {logoOverlay.enabled && (
@@ -518,12 +762,15 @@ export function TemplateEditor() {
             )}
 
             {/* Add custom blocks */}
-            <div className="flex gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
               <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={addCustomText}>
                 <Plus className="h-3 w-3 mr-1" /> Custom text
               </Button>
               <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={addCustomImage}>
                 <ImageIcon className="h-3 w-3 mr-1" /> Image slot
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={addCustomShape}>
+                <Square className="h-3 w-3 mr-1" /> Mask box
               </Button>
             </div>
 
@@ -560,6 +807,20 @@ export function TemplateEditor() {
                 </>
               )}
             </div>
+
+            {editableBgSvg?.items.length ? (
+              <SvgBackgroundPanel
+                dirty={bgSvgDirty}
+                items={editableBgSvg.items}
+                selectedKey={selectedSvgKey}
+                onSelect={(key) => {
+                  setSelected(null);
+                  setSelectedSvgKey(key);
+                }}
+                onUpdate={updateBackgroundSvgItem}
+                onReplaceImage={replaceBackgroundSvgImage}
+              />
+            ) : null}
 
             {/* Field editor */}
             {selectedField ? (
@@ -664,6 +925,7 @@ function FieldBox({
   const h    = field.h * scale;
 
   const isImage = field.kind === "image";
+  const isShape = field.kind === "shape";
   const imgSrc =
     field.id === "seal"            ? sealUrl :
     field.id === "signature1Image" ? sig1Url :
@@ -695,6 +957,11 @@ function FieldBox({
             {PREVIEW_TEXT[field.id] ?? field.label ?? "Image"}
           </div>
         )
+      ) : isShape ? (
+        <div
+          className="w-full h-full pointer-events-none border border-foreground/10"
+          style={{ backgroundColor: field.fillColor ?? "#ffffff" }}
+        />
       ) : (
         <div
           className="w-full h-full flex items-center pointer-events-none overflow-hidden"
@@ -738,6 +1005,7 @@ function FieldEditor({
   onCenterV: () => void;
 }) {
   const isText = field.kind === "text";
+  const isShape = field.kind === "shape";
   const isCustom = !isPredefined(field.id);
 
   return (
@@ -820,6 +1088,26 @@ function FieldEditor({
           className="mt-1"
         />
       </div>
+
+      {isShape && (
+        <div>
+          <Label className="text-xs">Fill color</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input type="color"
+              value={field.fillColor ?? "#ffffff"}
+              onChange={(e) => onChange({ fillColor: e.target.value })}
+              className="h-8 w-12 p-1 cursor-pointer" />
+            <Input
+              value={field.fillColor ?? "#ffffff"}
+              onChange={(e) => onChange({ fillColor: e.target.value })}
+              className="h-8 text-xs font-mono"
+              placeholder="#ffffff" />
+          </div>
+          <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+            Use this to cover text or logos baked into a flat AI/PDF background, then add replacement text above it.
+          </p>
+        </div>
+      )}
 
       {/* Text-only properties */}
       {isText && (

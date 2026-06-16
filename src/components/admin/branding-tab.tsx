@@ -44,7 +44,8 @@ const SLOTS: {
     label: "Certificate background (optional)",
     description:
       "Your existing certificate design used as the full-page background. Portrait A4 recommended.",
-    recommend: "PNG, JPG, SVG, PDF or AI - portrait - 2480x3508 px recommended",
+    recommend:
+      "SVG for in-app editing. PNG/JPG for flat backgrounds. PDF or AI are preview-only.",
     svgTarget: [2480, 3508],
     fillBackground: true,
     sampleAsset: SAMPLE_TEMPLATE_ASSET,
@@ -235,8 +236,9 @@ export function BrandingTab() {
         <p className="kicker">Certificate branding</p>
         <p className="text-sm text-muted-foreground">
           Upload your certificate background, digital seal, and two signature images.
-          PDF-compatible Illustrator backgrounds are stored as-is and rendered from
-          page 1 when the app needs a preview or certificate export. Edit the
+          SVG backgrounds now stay editable inside the browser template editor.
+          PDF-compatible Illustrator backgrounds are still stored as-is and rendered
+          from page 1 when the app needs a preview or certificate export. Edit the
           signatory names and titles from the{" "}
           <span className="font-medium">Settings</span> tab.
         </p>
@@ -356,8 +358,15 @@ function BrandingSlot({
     let uploadFile = file;
 
     if (isSvgFile(file)) {
-      toast.message("Converting SVG to PNG...");
-      uploadFile = await convertSvgToPng(file, tw, th, fillBackground);
+      if (isTemplateBackground(path)) {
+        toast.message("Keeping SVG editable for the template editor...");
+        uploadFile = new File([await file.text()], file.name, {
+          type: "image/svg+xml",
+        });
+      } else {
+        toast.message("Converting SVG to PNG...");
+        uploadFile = await convertSvgToPng(file, tw, th, fillBackground);
+      }
     } else if (isPdfLikeFile(file)) {
       if (isTemplateBackground(path)) {
         if (file.name.toLowerCase().endsWith(".ai")) {
@@ -375,6 +384,9 @@ function BrandingSlot({
           [await file.arrayBuffer()],
           file.name.replace(/\.ai$/i, ".pdf"),
           { type: "application/pdf" },
+        );
+        toast.message(
+          "This background will be preview-only in the browser. Export SVG from Illustrator if you need to edit the background inside the app.",
         );
       } else {
         toast.message(
@@ -480,9 +492,10 @@ function BrandingSlot({
       </div>
 
       <p className="text-[11px] leading-5 text-muted-foreground">
-        Background AI and PDF files stay in storage as uploaded and are rendered
-        from page 1. SVG files are still converted to PNG, and seal or signature
-        PDF/AI files are rasterized because those slots behave like images.
+        Template background SVG files stay editable in the browser editor. Background
+        AI and PDF files stay in storage as uploaded but remain preview-only in the
+        browser. Seal or signature SVG/PDF/AI files are still flattened because
+        those slots behave like images.
       </p>
 
       <div className="flex items-center gap-2">
