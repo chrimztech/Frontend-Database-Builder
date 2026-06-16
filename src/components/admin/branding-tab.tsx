@@ -215,6 +215,7 @@ async function convertPdfLikeToPng(
 export function BrandingTab() {
   const [exportingIllustratorPayload, setExportingIllustratorPayload] =
     useState(false);
+  const [editorRefreshToken, setEditorRefreshToken] = useState(0);
 
   async function onDownloadIllustratorPayload() {
     setExportingIllustratorPayload(true);
@@ -246,7 +247,11 @@ export function BrandingTab() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {SLOTS.map((slot) => (
-          <BrandingSlot key={slot.path} {...slot} />
+          <BrandingSlot
+            key={slot.path}
+            {...slot}
+            onAssetChanged={() => setEditorRefreshToken((value) => value + 1)}
+          />
         ))}
       </div>
 
@@ -279,7 +284,7 @@ export function BrandingTab() {
       </div>
 
       <div className="border-t pt-6">
-        <TemplateEditor />
+        <TemplateEditor refreshToken={editorRefreshToken} />
       </div>
     </div>
   );
@@ -293,6 +298,7 @@ function BrandingSlot({
   svgTarget,
   fillBackground = false,
   sampleAsset,
+  onAssetChanged,
 }: {
   path: string;
   label: string;
@@ -301,6 +307,7 @@ function BrandingSlot({
   svgTarget?: [number, number];
   fillBackground?: boolean;
   sampleAsset?: string;
+  onAssetChanged?: () => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -413,6 +420,7 @@ function BrandingSlot({
       await uploadAsset(file);
       toast.success(`${label} uploaded`);
       setStamp((value) => value + 1);
+      onAssetChanged?.();
     } catch (error: any) {
       toast.error(error.message ?? "Upload failed");
     } finally {
@@ -462,6 +470,7 @@ function BrandingSlot({
       setPreviewUrl(null);
       clearBrandingCache();
       toast.success("Removed");
+      onAssetChanged?.();
     } catch (error: any) {
       toast.error(error.message ?? "Failed");
     } finally {

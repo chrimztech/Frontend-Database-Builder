@@ -1,6 +1,6 @@
 // Helpers to load branding assets + org settings used by the PDF generator.
 import { supabase } from "@/integrations/supabase/client";
-import { blobToDataUrl, isPdfMimeType, isSvgMimeType } from "./pdf-like";
+import { blobToDataUrl, isPdfMimeType, readSvgMarkupFromBlob } from "./pdf-like";
 import { ensureLayout, type TemplateLayout } from "./template-layout";
 
 export const BRANDING_BUCKET = "branding";
@@ -58,18 +58,21 @@ export async function loadBranding(): Promise<BrandingAssets> {
     downloadBlob(TEMPLATE_BG_PATH).catch(() => null),
     supabase.from("org_settings").select("*").eq("id", true).maybeSingle(),
   ]);
+  const bgSvgMarkup = bgBlob
+    ? await readSvgMarkupFromBlob(bgBlob).catch(() => null)
+    : null;
   const [seal, signature, signature2, bg] = await Promise.all([
     sealBlob ? blobToDataUrl(sealBlob).catch(() => null) : Promise.resolve(null),
     signatureBlob ? blobToDataUrl(signatureBlob).catch(() => null) : Promise.resolve(null),
     signature2Blob ? blobToDataUrl(signature2Blob).catch(() => null) : Promise.resolve(null),
-    bgBlob && !isPdfMimeType(bgBlob.type)
+    bgSvgMarkup
+      ? blobToDataUrl(
+          new Blob([bgSvgMarkup], { type: "image/svg+xml;charset=utf-8" }),
+        ).catch(() => null)
+      : bgBlob && !isPdfMimeType(bgBlob.type)
       ? blobToDataUrl(bgBlob).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const bgSvgMarkup =
-    bgBlob && isSvgMimeType(bgBlob.type)
-      ? await bgBlob.text().catch(() => null)
-      : null;
   const row = (settingsRes.data ?? null) as (OrgSettings & { template_layout?: unknown }) | null;
   const settings: OrgSettings = row ? {
     org_name: row.org_name,

@@ -28,7 +28,10 @@ import {
   saveTemplateLayout,
   uploadBrandingFile,
 } from "@/lib/branding";
-import { renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
+import {
+  renderPdfBlobPageToDataUrl,
+  renderSvgMarkupToDataUrl,
+} from "@/lib/pdf-like";
 import { downloadCertificatePdf } from "@/lib/pdf";
 import { getCssFontFamily } from "@/lib/font-loader";
 import {
@@ -79,7 +82,11 @@ const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 let customCounter = 0;
 function nextCustomId() { return `custom_${++customCounter}`; }
 
-export function TemplateEditor() {
+export function TemplateEditor({
+  refreshToken = 0,
+}: {
+  refreshToken?: number;
+}) {
   const [layout, setLayout] = useState<TemplateLayout>(DEFAULT_LAYOUT);
   const [bgUrl, setBgUrl] = useState<string | null>(null);
   const [bgSvgMarkup, setBgSvgMarkup] = useState<string | null>(null);
@@ -136,51 +143,105 @@ export function TemplateEditor() {
     }
   }, [bgSvgMarkup]);
   const bgSvgDirty = (bgSvgMarkup ?? null) !== (originalBgSvgRef.current ?? null);
+  const svgEditableCount = editableBgSvg?.items.length ?? 0;
+  const svgPreviewLabels = editableBgSvg?.items.slice(0, 4).map((item) => item.label) ?? [];
 
   const snap = useCallback((v: number) => snapGrid ? Math.round(v) : Math.round(v * 10) / 10, [snapGrid]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const b = await loadBranding();
+  const loadTemplateEditorState = useCallback(
+    async (includeLayout: boolean) => {
+      const b = await loadBranding();
+
+      if (includeLayout) {
         const loaded = b.layout;
         historyRef.current = [loaded];
         histIdxRef.current = 0;
         layoutRef.current = loaded;
         setLayout(loaded);
-        if (b.templateBgSvgMarkup) {
-          setBgSvgMarkup(b.templateBgSvgMarkup);
-          originalBgSvgRef.current = b.templateBgSvgMarkup;
-        } else {
-          setBgSvgMarkup(null);
-          originalBgSvgRef.current = null;
-        }
-
-        if (b.templateBgDataUrl) {
-          setBgUrl(b.templateBgDataUrl);
-        } else if (b.templateBgBlob) {
-          const renderedBg = await renderPdfBlobPageToDataUrl(b.templateBgBlob, {
-            targetWidth: 1240,
-            targetHeight: 1754,
-          });
-          setBgUrl(renderedBg);
-        } else {
-          setBgUrl(null);
-        }
-        setSealUrl(b.sealDataUrl);
-        setSig1Url(b.signatureDataUrl);
-        setSig2Url(b.signature2DataUrl);
-        setSelectedSvgKey(null);
-        setSelectedSvgBox(null);
         setCanUndo(false);
         setCanRedo(false);
+      }
+
+      if (b.templateBgSvgMarkup) {
+        setBgSvgMarkup(b.templateBgSvgMarkup);
+        originalBgSvgRef.current = b.templateBgSvgMarkup;
+      } else {
+        setBgSvgMarkup(null);
+        originalBgSvgRef.current = null;
+      }
+
+      if (b.templateBgDataUrl) {
+        setBgUrl(b.templateBgDataUrl);
+      } else if (b.templateBgSvgMarkup) {
+        const renderedBg = await renderSvgMarkupToDataUrl(b.templateBgSvgMarkup, {
+          targetWidth: 1240,
+          targetHeight: 1754,
+        });
+        setBgUrl(renderedBg);
+      } else if (b.templateBgBlob) {
+        const renderedBg = await renderPdfBlobPageToDataUrl(b.templateBgBlob, {
+          targetWidth: 1240,
+          targetHeight: 1754,
+        });
+        setBgUrl(renderedBg);
+      } else {
+        setBgUrl(null);
+      }
+
+      setSealUrl(b.sealDataUrl);
+      setSig1Url(b.signatureDataUrl);
+      setSig2Url(b.signature2DataUrl);
+      setSelectedSvgKey(null);
+      setSelectedSvgBox(null);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    (async () => {
+      try {
+        await loadTemplateEditorState(true);
       } catch (e: any) {
-        toast.error(e.message ?? "Failed to load branding");
+        if (!cancelled) {
+          toast.error(e.message ?? "Failed to load branding");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadTemplateEditorState]);
+
+  useEffect(() => {
+    if (refreshToken === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await loadTemplateEditorState(false);
+        if (!cancelled) {
+          toast.success("Template editor refreshed with the latest uploaded background");
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          toast.error(e.message ?? "Failed to refresh the template editor");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadTemplateEditorState, refreshToken]);
 
   useEffect(() => {
     if (!editableBgSvg?.items.length) {
@@ -594,6 +655,24 @@ export function TemplateEditor() {
         </div>
       )}
 
+      {bgSvgMarkup && (
+        <div className="rounded-md border p-3 text-sm bg-emerald-50/60 border-emerald-200 text-emerald-950">
+          <p className="font-medium">
+            SVG background loaded. Editable layers detected: {svgEditableCount}
+          </p>
+          {svgEditableCount > 0 ? (
+            <p className="mt-1 text-xs text-emerald-900/80">
+              {svgPreviewLabels.join(" • ")}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-emerald-900/80">
+              The file was read as SVG, but no editable text or image layers were
+              detected yet.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-4">
         {/* Canvas */}
         <div className="rounded-lg border bg-muted/20 overflow-hidden">
@@ -702,6 +781,26 @@ export function TemplateEditor() {
         <ScrollArea className="rounded-lg border bg-card max-h-[82vh]">
           <div className="p-4 space-y-4">
 
+            {editableBgSvg ? (
+              <SvgBackgroundPanel
+                dirty={bgSvgDirty}
+                items={editableBgSvg.items}
+                selectedKey={selectedSvgKey}
+                onSelect={(key) => {
+                  setSelected(null);
+                  setSelectedSvgKey(key);
+                }}
+                onUpdate={updateBackgroundSvgItem}
+                onReplaceImage={replaceBackgroundSvgImage}
+              />
+            ) : bgSvgMarkup ? (
+              <div className="border rounded-md p-3 text-xs text-muted-foreground">
+                This SVG background loaded, but no editable text or image layers were
+                detected yet. That usually means the artwork was exported as outlines
+                or unsupported SVG shapes.
+              </div>
+            ) : null}
+
             {/* Active fields */}
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Active fields</Label>
@@ -807,20 +906,6 @@ export function TemplateEditor() {
                 </>
               )}
             </div>
-
-            {editableBgSvg?.items.length ? (
-              <SvgBackgroundPanel
-                dirty={bgSvgDirty}
-                items={editableBgSvg.items}
-                selectedKey={selectedSvgKey}
-                onSelect={(key) => {
-                  setSelected(null);
-                  setSelectedSvgKey(key);
-                }}
-                onUpdate={updateBackgroundSvgItem}
-                onReplaceImage={replaceBackgroundSvgImage}
-              />
-            ) : null}
 
             {/* Field editor */}
             {selectedField ? (

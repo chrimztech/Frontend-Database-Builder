@@ -6,6 +6,10 @@ export function isSvgMimeType(mimeType: string | null | undefined) {
   return (mimeType ?? "").toLowerCase().includes("svg");
 }
 
+export function looksLikeSvgMarkup(text: string) {
+  return /<svg[\s>]/i.test(text);
+}
+
 export async function blobToDataUrl(blob: Blob): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -18,6 +22,11 @@ export async function blobToDataUrl(blob: Blob): Promise<string> {
 export async function isPdfCompatibleIllustratorFile(file: Blob) {
   const header = await file.slice(0, 5).text();
   return header === "%PDF-";
+}
+
+export async function readSvgMarkupFromBlob(blob: Blob) {
+  const text = await blob.text();
+  return looksLikeSvgMarkup(text) ? text : null;
 }
 
 function readSvgDimensions(svgMarkup: string) {

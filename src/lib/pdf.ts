@@ -5,9 +5,8 @@ import { verificationUrl } from "./cert";
 import { loadBranding } from "./branding";
 import {
   isPdfMimeType,
-  isSvgMimeType,
   renderPdfBlobPageToDataUrl,
-  renderSvgBlobToDataUrl,
+  renderSvgMarkupToDataUrl,
 } from "./pdf-like";
 import { DEFAULT_LAYOUT, DEFAULT_LOGO_OVERLAY, mmToPt, type LayoutField, type TemplateLayout } from "./template-layout";
 import { registerCustomFontsInDoc } from "./font-loader";
@@ -178,11 +177,14 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   // Background
   let backgroundDataUrl: string | null = null;
 
-  if (branding?.templateBgBlob && isSvgMimeType(branding.templateBgMimeType)) {
-    backgroundDataUrl = await renderSvgBlobToDataUrl(branding.templateBgBlob, {
+  if (branding?.templateBgSvgMarkup) {
+    backgroundDataUrl = await renderSvgMarkupToDataUrl(
+      branding.templateBgSvgMarkup,
+      {
       targetWidth: 2480,
       targetHeight: 3508,
-    }).catch(() => null);
+      },
+    ).catch(() => null);
   } else if (
     branding?.templateBgBlob &&
     isPdfMimeType(branding.templateBgMimeType)
