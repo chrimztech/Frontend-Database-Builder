@@ -26,7 +26,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { downloadCertificatePdf, uploadCertificatePdf } from "@/lib/pdf";
 import { verificationUrl } from "@/lib/cert";
 import {
   AdminEmptyState,
@@ -39,6 +38,7 @@ import {
 type Cert = {
   id: string;
   certificate_id: string;
+  certificate_code: string | null;
   recipient_name: string;
   recipient_email: string | null;
   programme: string;
@@ -48,7 +48,7 @@ type Cert = {
   email_status: string;
   email_sent_at: string | null;
   created_at: string;
-  national_id: string | null;
+  national_id?: string | null;
 };
 
 export function CertificatesTab() {
@@ -78,8 +78,9 @@ export function CertificatesTab() {
     }
 
     const query = search.toLowerCase();
+    const code = getCertificateCode(cert).toLowerCase();
     return (
-      cert.certificate_id.toLowerCase().includes(query) ||
+      code.includes(query) ||
       cert.recipient_name.toLowerCase().includes(query) ||
       cert.programme.toLowerCase().includes(query) ||
       (cert.recipient_email ?? "").toLowerCase().includes(query)
@@ -100,10 +101,26 @@ export function CertificatesTab() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <AdminStat label="Issued" value={list.length} hint="Total certificate records in the registry" />
-        <AdminStat label="Valid" value={validCount} hint="Certificates currently recognised as active" />
-        <AdminStat label="Revoked" value={revokedCount} hint="Records that should no longer be accepted" />
-        <AdminStat label="Delivered" value={sentCount} hint="Certificates marked as sent by email" />
+        <AdminStat
+          label="Issued"
+          value={list.length}
+          hint="Total certificate records in the registry"
+        />
+        <AdminStat
+          label="Valid"
+          value={validCount}
+          hint="Certificates currently recognised as active"
+        />
+        <AdminStat
+          label="Revoked"
+          value={revokedCount}
+          hint="Records that should no longer be accepted"
+        />
+        <AdminStat
+          label="Delivered"
+          value={sentCount}
+          hint="Certificates marked as sent by email"
+        />
       </div>
 
       <AdminPanel>
@@ -162,12 +179,18 @@ export function CertificatesTab() {
   );
 }
 
+function getCertificateCode(cert: Pick<Cert, "certificate_code" | "certificate_id">) {
+  return cert.certificate_code || cert.certificate_id;
+}
+
 function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const certificateCode = getCertificateCode(cert);
 
   async function download() {
+    const { downloadCertificatePdf } = await import("@/lib/pdf");
     await downloadCertificatePdf({
-      certificateId: cert.certificate_id,
+      certificateId: certificateCode,
       recipientName: cert.recipient_name,
       programme: cert.programme,
       issueDate: cert.issue_date,
@@ -178,15 +201,14 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
   async function emailToStudent() {
     if (!cert.recipient_email) {
-      return toast.error(
-        "No email is stored on this certificate. Edit the student record first.",
-      );
+      return toast.error("No email is stored on this certificate. Edit the student record first.");
     }
 
     setBusy(true);
     try {
+      const { uploadCertificatePdf } = await import("@/lib/pdf");
       const pdfUrl = await uploadCertificatePdf({
-        certificateId: cert.certificate_id,
+        certificateId: certificateCode,
         recipientName: cert.recipient_name,
         programme: cert.programme,
         issueDate: cert.issue_date,
@@ -194,19 +216,16 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
         nrcNumber: cert.national_id ?? undefined,
       });
 
-      const verify = verificationUrl(cert.certificate_id);
+      const verify = verificationUrl(certificateCode);
       const subject = encodeURIComponent(`Your certificate: ${cert.programme}`);
       const body = encodeURIComponent(
         `Dear ${cert.recipient_name},\n\nCongratulations on completing ${cert.programme}.\n\n` +
           `Your certificate is attached and can also be downloaded here:\n${pdfUrl}\n\n` +
           `You or any employer can verify it here:\n${verify}\n\n` +
-          `Certificate ID: ${cert.certificate_id}\n\nBest regards,\n${cert.issuer_name}`,
+          `Certificate ID: ${certificateCode}\n\nBest regards,\n${cert.issuer_name}`,
       );
 
-      window.open(
-        `mailto:${cert.recipient_email}?subject=${subject}&body=${body}`,
-        "_blank",
-      );
+      window.open(`mailto:${cert.recipient_email}?subject=${subject}&body=${body}`, "_blank");
 
       await supabase
         .from("certificates")
@@ -227,7 +246,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(verificationUrl(cert.certificate_id));
+    await navigator.clipboard.writeText(verificationUrl(certificateCode));
     toast.success("Verification link copied");
   }
 
@@ -273,9 +292,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
   async function remove() {
     if (
-      !window.confirm(
-        `Permanently delete certificate ${cert.certificate_id}? This cannot be undone.`,
-      )
+      !window.confirm(`Permanently delete certificate ${certificateCode}? This cannot be undone.`)
     ) {
       return;
     }
@@ -284,13 +301,10 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
     try {
       await supabase.storage
         .from("certificates")
-        .remove([`${cert.certificate_id}.pdf`])
+        .remove([`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`])
         .catch(() => {});
 
-      const { error } = await supabase
-        .from("certificates")
-        .delete()
-        .eq("id", cert.id);
+      const { error } = await supabase.from("certificates").delete().eq("id", cert.id);
 
       if (error) {
         throw error;
@@ -307,7 +321,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
   return (
     <TableRow>
-      <TableCell className="font-mono text-xs">{cert.certificate_id}</TableCell>
+      <TableCell className="font-mono text-xs">{certificateCode}</TableCell>
       <TableCell>
         <div className="font-medium">{cert.recipient_name}</div>
         <div className="mt-1 text-sm text-muted-foreground">
@@ -320,9 +334,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
       </TableCell>
       <TableCell>
         {cert.status === "valid" ? (
-          <Badge className="bg-success text-success-foreground hover:bg-success">
-            Valid
-          </Badge>
+          <Badge className="bg-success text-success-foreground hover:bg-success">Valid</Badge>
         ) : (
           <Badge variant="destructive">Revoked</Badge>
         )}
@@ -343,7 +355,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
             <Copy className="h-4 w-4" />
           </Button>
           <Button size="sm" variant="outline" asChild title="Open public verification page">
-            <a href={`/verify/${cert.certificate_id}`} target="_blank" rel="noreferrer">
+            <a href={`/verify/${certificateCode}`} target="_blank" rel="noreferrer">
               <ExternalLink className="h-4 w-4" />
             </a>
           </Button>

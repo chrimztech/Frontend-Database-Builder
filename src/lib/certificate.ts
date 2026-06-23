@@ -1,10 +1,24 @@
-import { supabaseAdmin } from '@/integrations/supabase/client.server';
+import { randomBytes } from "crypto";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-function pad(num: number, size = 4) {
-  return num.toString().padStart(size, '0');
+function randomSuffix(length = 8): string {
+  const bytes = randomBytes(length);
+  return Array.from(bytes as Uint8Array)
+    .map((b: number) => b % 10)
+    .join("");
 }
 
-export async function createCertificateWithCode({ enrolmentId, courseId, studentId, recipientEmail, recipientName, programme, nationalId, coursePrefix }: {
+export async function createCertificateWithCode({
+  enrolmentId,
+  courseId,
+  studentId,
+  recipientEmail,
+  recipientName,
+  programme,
+  nationalId,
+  coursePrefix,
+  issuerName,
+}: {
   enrolmentId: string;
   courseId: string;
   studentId: string | null;
@@ -13,70 +27,56 @@ export async function createCertificateWithCode({ enrolmentId, courseId, student
   programme?: string;
   nationalId?: string | null;
   coursePrefix?: string | null;
+  issuerName?: string | null;
 }) {
   const admin = supabaseAdmin as any;
   const currentYear = new Date().getFullYear();
+  const prefix = coursePrefix ? coursePrefix.toUpperCase().replace(/[^A-Z0-9]/g, "") : "CERT";
 
-  // 1) Atomically increment the per-course, per-year counter via RPC.
-  //    The RPC creates the row if absent and resets to 1 when the year rolls over.
-  const upd = await admin.rpc('increment_certificate_counter', {
-    p_course_id: courseId,
-    p_year: currentYear,
-  });
-
-  let nextNumber: number | null = null;
-  if (upd && !upd.error && Array.isArray(upd.data) && upd.data.length > 0) {
-    nextNumber = upd.data[0].last_number;
-  } else {
-    // Fallback (RPC not yet updated): manual upsert for current year row
-    const ensure = await admin
-      .from('certificate_counters')
-      .select('last_number')
-      .eq('course_id', courseId)
-      .eq('year_issued', currentYear)
-      .maybeSingle();
-    if (ensure.error) throw ensure.error;
-
-    if (!ensure.data) {
-      await admin.from('certificate_counters').insert({ course_id: courseId, last_number: 0, year_issued: currentYear });
-    }
-    const res = await admin
-      .from('certificate_counters')
-      .update({ last_number: (ensure.data?.last_number ?? 0) + 1 })
-      .eq('course_id', courseId)
-      .eq('year_issued', currentYear)
-      .select('last_number')
+  // Generate a cryptographically random code: PREFIX + YEAR + 8 random digits
+  // e.g. PMP202647293815 — unpredictable, not guessable from adjacent codes.
+  //
+  // The DB has a UNIQUE constraint on certificate_code so no two certificates
+  // can ever share a code regardless of race conditions. On the rare collision
+  // (error code 23505) we generate a fresh code and retry rather than pre-checking
+  // with a SELECT (which has a race window anyway).
+  let insert: any;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = `${prefix}${currentYear}${randomSuffix(8)}`;
+    insert = await admin
+      .from("certificates")
+      .insert({
+        certificate_id: code,
+        certificate_code: code,
+        issue_date: new Date().toISOString().split("T")[0],
+        issuer_name: issuerName ?? "UNZA TeLS",
+        course_id: courseId,
+        student_id: studentId,
+        recipient_email: recipientEmail ?? null,
+        recipient_name: recipientName ?? null,
+        programme: programme ?? null,
+        national_id: nationalId ?? null,
+        email_status: "not_sent",
+      })
+      .select("id, certificate_id, certificate_code")
       .single();
-    if (res.error) throw res.error;
-    nextNumber = res.data.last_number;
+
+    if (!insert.error) break;
+    // 23505 = unique_violation — another record already has this code, try again
+    if (insert.error.code !== "23505") throw insert.error;
+  }
+  if (insert.error) throw new Error("Could not allocate a unique certificate code — please try again.");
+
+  const code = insert.data.certificate_code;
+  if (insert.data.certificate_id !== code) {
+    throw new Error("Certificate ID guard failed. The generated code was not stored consistently.");
   }
 
-  if (nextNumber == null) throw new Error('Failed to allocate certificate number');
-
-  // 2) Certificate code: PREFIX + YYYY + 7-digit annual sequence.
-  //    Sequence resets to 0000001 each year per course.
-  //    Example: SCM20260000001, SCM20260000002 … SCM20270000001 (new year → resets)
-  const prefix = coursePrefix ? coursePrefix.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-  const code = `${prefix}${currentYear}${pad(nextNumber, 7)}`;
-
-  // 4) insert certificate record
-  const insertPayload: any = {
-    certificate_code: code,
-    course_id: courseId,
-    student_id: studentId,
-    recipient_email: recipientEmail ?? null,
-    recipient_name: recipientName ?? null,
-    programme: programme ?? null,
-    national_id: nationalId ?? null,
-    email_status: 'not_sent',
-  };
-
-  const insert = await admin.from('certificates').insert(insertPayload).select('id, certificate_code').single();
-  if (insert.error) throw insert.error;
-
-  // 5) link enrolment -> certificate_id if enrolment exists
   if (enrolmentId) {
-    const enc = await admin.from('enrolments').update({ certificate_id: insert.data.id }).eq('id', enrolmentId);
+    const enc = await admin
+      .from("enrolments")
+      .update({ certificate_id: insert.data.id })
+      .eq("id", enrolmentId);
     if (enc.error) throw enc.error;
   }
 

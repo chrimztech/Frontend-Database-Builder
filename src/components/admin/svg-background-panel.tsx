@@ -31,8 +31,7 @@ export function SvgBackgroundPanel({
     );
   }
 
-  const selectedItem =
-    items.find((item) => item.key === selectedKey) ?? items[0] ?? null;
+  const selectedItem = items.find((item) => item.key === selectedKey) ?? items[0] ?? null;
 
   return (
     <div className="border rounded-md p-3 space-y-3">
@@ -40,21 +39,17 @@ export function SvgBackgroundPanel({
         <div className="flex items-center justify-between gap-3">
           <Label className="text-xs font-semibold">Editable SVG background</Label>
           {dirty ? (
-            <span className="text-[11px] font-medium text-amber-600">
-              Unsaved SVG changes
-            </span>
+            <span className="text-[11px] font-medium text-amber-600">Unsaved SVG changes</span>
           ) : null}
         </div>
         <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-          Click text or image layers on the canvas, or pick them here. These SVG
-          edits save together with the main template save button.
+          Click text or image layers on the canvas, or pick them here. These SVG edits save together
+          with the main template save button without replacing the original uploaded artwork.
         </p>
       </div>
 
       <div>
-        <Label className="text-xs uppercase text-muted-foreground">
-          Editable layers
-        </Label>
+        <Label className="text-xs uppercase text-muted-foreground">Editable layers</Label>
         <div className="mt-2 space-y-1">
           {items.map((item) => (
             <button
@@ -101,9 +96,7 @@ function SvgItemEditor({
   onReplaceImage: (file: File | null) => void;
 }) {
   const colorValue =
-    item.fill && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(item.fill)
-      ? item.fill
-      : "#174734";
+    item.fill && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(item.fill) ? item.fill : "#174734";
 
   return (
     <div className="space-y-3 border-t pt-3">
@@ -124,16 +117,8 @@ function SvgItemEditor({
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <NumField
-              label="X"
-              value={item.x}
-              onChange={(value) => onUpdate({ x: value })}
-            />
-            <NumField
-              label="Y"
-              value={item.y}
-              onChange={(value) => onUpdate({ y: value })}
-            />
+            <NumField label="X" value={item.x} onChange={(value) => onUpdate({ x: value })} />
+            <NumField label="Y" value={item.y} onChange={(value) => onUpdate({ y: value })} />
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -179,16 +164,8 @@ function SvgItemEditor({
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <NumField
-              label="X"
-              value={item.x}
-              onChange={(value) => onUpdate({ x: value })}
-            />
-            <NumField
-              label="Y"
-              value={item.y}
-              onChange={(value) => onUpdate({ y: value })}
-            />
+            <NumField label="X" value={item.x} onChange={(value) => onUpdate({ x: value })} />
+            <NumField label="Y" value={item.y} onChange={(value) => onUpdate({ y: value })} />
             <NumField
               label="Width"
               value={item.width}

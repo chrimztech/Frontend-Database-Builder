@@ -33,7 +33,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadCertificatePdf } from "@/lib/pdf";
 import { generateCertificate as generateCertificateServer } from "@/lib/api/certificates.functions";
 import {
   AdminEmptyState,
@@ -263,6 +262,7 @@ function EnrolRow({
       const issueDate = new Date().toISOString().slice(0, 10);
 
       // Generate and upload PDF client-side
+      const { uploadCertificatePdf } = await import("@/lib/pdf");
       await uploadCertificatePdf({
         certificateId: cert.certificate_code,
         recipientName: enrolment.student.full_name,

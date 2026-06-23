@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trash2, RefreshCw } from "lucide-react";
 
-import { TemplateEditor } from "@/components/admin/template-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,22 +12,28 @@ import {
   TEMPLATE_BG_PATH,
   uploadBrandingFile,
   deleteBrandingFile,
-  getBrandingSignedUrl,
   clearBrandingCache,
   loadBranding,
+  saveTemplateLayout,
 } from "@/lib/branding";
-import {
-  buildIllustratorPayload,
-  downloadIllustratorPayload,
-} from "@/lib/illustrator-handoff";
-import {
-  isPdfCompatibleIllustratorFile,
-  renderPdfBlobPageToDataUrl,
-} from "@/lib/pdf-like";
+import { buildIllustratorPayload, downloadIllustratorPayload } from "@/lib/illustrator-handoff";
+import { isPdfCompatibleIllustratorFile, renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
+import { DEFAULT_LAYOUT, toQrOnlyLayout } from "@/lib/template-layout";
+
+const TemplateEditor = lazy(() =>
+  import("@/components/admin/template-editor").then((module) => ({
+    default: module.TemplateEditor,
+  })),
+);
 
 const SAMPLE_TEMPLATE_ASSET = "/certificate-template-sample.svg";
 const BRANDING_ACCEPT =
   "image/png,image/jpeg,image/jpg,image/svg+xml,.svg,application/pdf,.pdf,.ai";
+const SEAL_SLOT_COPY = {
+  description:
+    "Your institution's official digital seal or crest. This upload fills the Digital seal field in the template editor and final certificate PDF. Upload a PNG or JPEG and the white background is removed automatically.",
+  recommend: "PNG or JPEG of the seal or crest - 600x600 px recommended",
+} as const;
 
 const SLOTS: {
   path: string;
@@ -44,8 +49,7 @@ const SLOTS: {
     label: "Certificate background (optional)",
     description:
       "Your existing certificate design used as the full-page background. Portrait A4 recommended.",
-    recommend:
-      "SVG for in-app editing. PNG/JPG for flat backgrounds. PDF or AI are preview-only.",
+    recommend: "PDF/AI for exact finished artwork. The app will add only the QR code overlay.",
     svgTarget: [2480, 3508],
     fillBackground: true,
     sampleAsset: SAMPLE_TEMPLATE_ASSET,
@@ -54,16 +58,16 @@ const SLOTS: {
     path: SEAL_PATH,
     label: "Digital seal",
     description:
-      "Embossed seal or stamp centered above the signatures. Use a transparent asset where possible.",
-    recommend: "PNG, SVG, PDF or AI with transparency - 600x600 px",
+      "Your institution logo or crest displayed at the top of the certificate. Upload a PNG or JPEG — the white background is removed automatically.",
+    recommend: "PNG or JPEG of the crest — 600×600 px recommended",
+    ...SEAL_SLOT_COPY,
     svgTarget: [600, 600],
     fillBackground: false,
   },
   {
     path: SIGNATURE_PATH,
     label: "Signature #1 (left)",
-    description:
-      "Scanned signature for the first signatory (for example the Director).",
+    description: "Scanned signature for the first signatory (for example the Director).",
     recommend: "PNG, SVG, PDF or AI with transparency - 800x280 px",
     svgTarget: [800, 280],
     fillBackground: false,
@@ -71,8 +75,7 @@ const SLOTS: {
   {
     path: SIGNATURE2_PATH,
     label: "Signature #2 (right)",
-    description:
-      "Scanned signature for the second signatory (for example the Programme Lead).",
+    description: "Scanned signature for the second signatory (for example the Programme Lead).",
     recommend: "PNG, SVG, PDF or AI with transparency - 800x280 px",
     svgTarget: [800, 280],
     fillBackground: false,
@@ -95,6 +98,95 @@ function isEpsFile(file: File) {
 
 function isTemplateBackground(path: string) {
   return path === TEMPLATE_BG_PATH;
+}
+
+async function removeWhiteBackground(file: File): Promise<File> {
+  const url = URL.createObjectURL(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Canvas context unavailable")); return; }
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const a = d[i + 3];
+        if (a === 0) continue;
+        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        if (lum > 220) {
+          // Soft fade: transparent at lum=255, full alpha at lum=220
+          const fade = (lum - 220) / 35;
+          d[i + 3] = Math.round(a * (1 - fade));
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { reject(new Error("Background removal failed")); return; }
+          const name = file.name.replace(/\.(jpe?g|jpg)$/i, ".png");
+          resolve(new File([blob], name, { type: "image/png" }));
+        },
+        "image/png",
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load image for background removal"));
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * Detects SVG files that will render incorrectly in the browser preview.
+ * Two causes: letter-by-letter text export (many <text> nodes), and system
+ * fonts the browser cannot load for SVGs rendered via <img> (e.g. Arial Bold,
+ * Monotype Corsiva). Returns a human-readable problem string, or null if clean.
+ */
+function detectSvgRenderIssues(svgMarkup: string): string | null {
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(svgMarkup, "image/svg+xml");
+  } catch {
+    return null;
+  }
+
+  const textCount = doc.querySelectorAll("text").length;
+
+  const fontFamilies = new Set<string>();
+  doc.querySelectorAll("*").forEach((el) => {
+    const ff = el.getAttribute("font-family");
+    if (ff) ff.split(",").forEach((f) => fontFamilies.add(f.replace(/['"]/g, "").trim()));
+    const style = el.getAttribute("style") ?? "";
+    const m = /font-family\s*:\s*([^;]+)/.exec(style);
+    if (m) m[1].split(",").forEach((f) => fontFamilies.add(f.replace(/['"]/g, "").trim()));
+  });
+
+  const GENERIC = new Set([
+    "serif",
+    "sans-serif",
+    "monospace",
+    "cursive",
+    "fantasy",
+    "system-ui",
+    "",
+  ]);
+  const systemFonts = [...fontFamilies].filter((f) => !GENERIC.has(f.toLowerCase()));
+
+  const problems: string[] = [];
+  if (textCount >= 100) {
+    problems.push(`${textCount.toLocaleString()} text fragments (letter-by-letter export)`);
+  }
+  if (systemFonts.length > 0) {
+    problems.push(`system fonts the browser cannot load: ${systemFonts.slice(0, 3).join(", ")}`);
+  }
+
+  return problems.length > 0 ? problems.join(" · ") : null;
 }
 
 async function canvasToPngFile(canvas: HTMLCanvasElement, fileName: string) {
@@ -136,10 +228,8 @@ async function convertSvgToPng(
     ?.trim()
     .split(/[\s,]+/)
     .map(Number);
-  const naturalW =
-    vb?.[2] ?? (parseFloat(svgEl.getAttribute("width") ?? "595") || 595);
-  const naturalH =
-    vb?.[3] ?? (parseFloat(svgEl.getAttribute("height") ?? "842") || 842);
+  const naturalW = vb?.[2] ?? (parseFloat(svgEl.getAttribute("width") ?? "595") || 595);
+  const naturalH = vb?.[3] ?? (parseFloat(svgEl.getAttribute("height") ?? "842") || 842);
 
   const scale = Math.min(targetW / naturalW, targetH / naturalH);
   const canvasW = Math.round(naturalW * scale);
@@ -173,10 +263,7 @@ async function convertSvgToPng(
 
       ctx.drawImage(img, 0, 0, canvasW, canvasH);
       URL.revokeObjectURL(url);
-      void canvasToPngFile(canvas, file.name.replace(/\.svg$/i, ".png")).then(
-        resolve,
-        reject,
-      );
+      void canvasToPngFile(canvas, file.name.replace(/\.svg$/i, ".png")).then(resolve, reject);
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -190,20 +277,13 @@ async function convertSvgToPng(
   });
 }
 
-async function convertPdfLikeToPng(
-  file: File,
-  targetW: number,
-  targetH: number,
-): Promise<File> {
+async function convertPdfLikeToPng(file: File, targetW: number, targetH: number): Promise<File> {
   try {
     const dataUrl = await renderPdfBlobPageToDataUrl(file, {
       targetWidth: targetW,
       targetHeight: targetH,
     });
-    return await dataUrlToPngFile(
-      dataUrl,
-      file.name.replace(/\.(ai|pdf)$/i, ".png"),
-    );
+    return await dataUrlToPngFile(dataUrl, file.name.replace(/\.(ai|pdf)$/i, ".png"));
   } catch {
     throw new Error(
       `${file.name} could not be rendered from page 1. ` +
@@ -213,9 +293,11 @@ async function convertPdfLikeToPng(
 }
 
 export function BrandingTab() {
-  const [exportingIllustratorPayload, setExportingIllustratorPayload] =
-    useState(false);
-  const [editorRefreshToken, setEditorRefreshToken] = useState(0);
+  const [exportingIllustratorPayload, setExportingIllustratorPayload] = useState(false);
+  const [editorRefresh, setEditorRefresh] = useState({
+    token: 0,
+    includeLayout: false,
+  });
 
   async function onDownloadIllustratorPayload() {
     setExportingIllustratorPayload(true);
@@ -236,12 +318,12 @@ export function BrandingTab() {
       <div>
         <p className="kicker">Certificate branding</p>
         <p className="text-sm text-muted-foreground">
-          Upload your certificate background, digital seal, and two signature images.
-          SVG backgrounds now stay editable inside the browser template editor.
-          PDF-compatible Illustrator backgrounds are still stored as-is and rendered
-          from page 1 when the app needs a preview or certificate export. Edit the
-          signatory names and titles from the{" "}
-          <span className="font-medium">Settings</span> tab.
+          Upload your certificate background, digital seal, and two signature images. SVG
+          backgrounds now stay editable inside the browser template editor, and the uploaded
+          digital seal is reused automatically in the Digital seal field during certificate export.
+          PDF-compatible Illustrator backgrounds are still stored as-is and rendered from page 1
+          when the app needs a preview or certificate export. Edit the signatory names and titles
+          from the <span className="font-medium">Settings</span> tab.
         </p>
       </div>
 
@@ -250,7 +332,12 @@ export function BrandingTab() {
           <BrandingSlot
             key={slot.path}
             {...slot}
-            onAssetChanged={() => setEditorRefreshToken((value) => value + 1)}
+            onAssetChanged={(includeLayout = false) =>
+              setEditorRefresh((current) => ({
+                token: current.token + 1,
+                includeLayout,
+              }))
+            }
           />
         ))}
       </div>
@@ -260,15 +347,14 @@ export function BrandingTab() {
           <div className="max-w-3xl">
             <Label className="text-base">Illustrator-native editing</Label>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              If you want to keep editing the uploaded certificate in Adobe
-              Illustrator, use the handoff workflow instead of the browser
-              template editor. Download the payload JSON here, then run the
-              script in{" "}
+              If you want to keep editing the uploaded certificate in Adobe Illustrator, use the
+              handoff workflow instead of the browser template editor. Download the payload JSON
+              here, then run the script in{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 illustrator/apply-certificate-payload.jsx
               </code>{" "}
-              to push your current branding and signatory values into named
-              objects inside the open <code className="text-xs">.ai</code> file.
+              to push your current branding and signatory values into named objects inside the open{" "}
+              <code className="text-xs">.ai</code> file.
             </p>
           </div>
           <Button
@@ -276,15 +362,24 @@ export function BrandingTab() {
             onClick={onDownloadIllustratorPayload}
             disabled={exportingIllustratorPayload}
           >
-            {exportingIllustratorPayload
-              ? "Preparing payload..."
-              : "Download Illustrator payload"}
+            {exportingIllustratorPayload ? "Preparing payload..." : "Download Illustrator payload"}
           </Button>
         </div>
       </div>
 
       <div className="border-t pt-6">
-        <TemplateEditor refreshToken={editorRefreshToken} />
+        <Suspense
+          fallback={
+            <div className="surface-panel rounded-xl p-5 text-sm text-muted-foreground">
+              Loading template editor...
+            </div>
+          }
+        >
+          <TemplateEditor
+            refreshToken={editorRefresh.token}
+            refreshIncludesLayout={editorRefresh.includeLayout}
+          />
+        </Suspense>
       </div>
     </div>
   );
@@ -307,7 +402,7 @@ function BrandingSlot({
   svgTarget?: [number, number];
   fillBackground?: boolean;
   sampleAsset?: string;
-  onAssetChanged?: () => void;
+  onAssetChanged?: (includeLayout?: boolean) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -320,8 +415,9 @@ function BrandingSlot({
 
     (async () => {
       try {
+        const branding = await loadBranding();
+
         if (isTemplateBackground(path)) {
-          const branding = await loadBranding();
           let nextPreview = branding.templateBgDataUrl;
 
           if (!nextPreview && branding.templateBgBlob) {
@@ -331,16 +427,22 @@ function BrandingSlot({
             });
           }
 
-          if (!cancelled) {
-            setPreviewUrl(nextPreview);
-          }
+          if (!cancelled) setPreviewUrl(nextPreview);
           return;
         }
 
-        const url = await getBrandingSignedUrl(path);
-        if (!cancelled) {
-          setPreviewUrl(url);
-        }
+        // Read from the already-fetched branding cache — avoids a separate signed-URL
+        // POST request that Supabase returns 400 for when the file isn't uploaded yet.
+        const url =
+          path === SEAL_PATH
+            ? branding.sealDataUrl
+            : path === SIGNATURE_PATH
+              ? branding.signatureDataUrl
+              : path === SIGNATURE2_PATH
+                ? branding.signature2DataUrl
+                : null;
+
+        if (!cancelled) setPreviewUrl(url);
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -366,10 +468,17 @@ function BrandingSlot({
 
     if (isSvgFile(file)) {
       if (isTemplateBackground(path)) {
-        toast.message("Keeping SVG editable for the template editor...");
-        uploadFile = new File([await file.text()], file.name, {
-          type: "image/svg+xml",
-        });
+        const svgText = await file.text();
+        const renderIssue = detectSvgRenderIssues(svgText);
+        if (renderIssue) {
+          toast.warning(
+            `This SVG may preview incorrectly: ${renderIssue}. For accurate rendering, export a PNG or PDF from Illustrator instead.`,
+            { duration: 10000 },
+          );
+        } else {
+          toast.message("Keeping SVG editable for the template editor...");
+        }
+        uploadFile = new File([svgText], file.name, { type: "image/svg+xml" });
       } else {
         toast.message("Converting SVG to PNG...");
         uploadFile = await convertSvgToPng(file, tw, th, fillBackground);
@@ -387,11 +496,9 @@ function BrandingSlot({
           }
         }
 
-        uploadFile = new File(
-          [await file.arrayBuffer()],
-          file.name.replace(/\.ai$/i, ".pdf"),
-          { type: "application/pdf" },
-        );
+        uploadFile = new File([await file.arrayBuffer()], file.name.replace(/\.ai$/i, ".pdf"), {
+          type: "application/pdf",
+        });
         toast.message(
           "This background will be preview-only in the browser. Export SVG from Illustrator if you need to edit the background inside the app.",
         );
@@ -405,11 +512,24 @@ function BrandingSlot({
       }
     }
 
+    // For seal and signature slots: auto-strip white/near-white background from raster images
+    const isRasterUpload = !isSvgFile(file) && !isPdfLikeFile(file);
+    if (!isTemplateBackground(path) && !fillBackground && isRasterUpload) {
+      toast.message("Removing white background…");
+      uploadFile = await removeWhiteBackground(uploadFile);
+    }
+
     if (uploadFile.size > 10 * 1024 * 1024) {
       throw new Error("File too large (max 10 MB)");
     }
 
     await uploadBrandingFile(path, uploadFile);
+
+    if (isTemplateBackground(path)) {
+      const branding = await loadBranding().catch(() => null);
+      await saveTemplateLayout(toQrOnlyLayout(branding?.layout));
+      toast.message("Template kept as finished artwork. Only the QR code overlay is active.");
+    }
   }
 
   async function onPick(file: File | null) {
@@ -420,7 +540,7 @@ function BrandingSlot({
       await uploadAsset(file);
       toast.success(`${label} uploaded`);
       setStamp((value) => value + 1);
-      onAssetChanged?.();
+      onAssetChanged?.(isTemplateBackground(path));
     } catch (error: any) {
       toast.error(error.message ?? "Upload failed");
     } finally {
@@ -452,8 +572,13 @@ function BrandingSlot({
       });
 
       await uploadAsset(file);
-      toast.success("Sample certificate template applied");
+      if (isTemplateBackground(path)) {
+        await saveTemplateLayout(DEFAULT_LAYOUT);
+        clearBrandingCache();
+      }
+      toast.success("Sample certificate template applied with editable fields");
       setStamp((value) => value + 1);
+      onAssetChanged?.(isTemplateBackground(path));
     } catch (error: any) {
       toast.error(error.message ?? "Sample template could not be applied");
     } finally {
@@ -470,7 +595,7 @@ function BrandingSlot({
       setPreviewUrl(null);
       clearBrandingCache();
       toast.success("Removed");
-      onAssetChanged?.();
+      onAssetChanged?.(isTemplateBackground(path));
     } catch (error: any) {
       toast.error(error.message ?? "Failed");
     } finally {
@@ -490,21 +615,16 @@ function BrandingSlot({
         {loading ? (
           <span className="text-xs text-muted-foreground">Loading...</span>
         ) : previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={label}
-            className="max-h-full max-w-full object-contain"
-          />
+          <img src={previewUrl} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
           <span className="text-xs text-muted-foreground">Not uploaded</span>
         )}
       </div>
 
       <p className="text-[11px] leading-5 text-muted-foreground">
-        Template background SVG files stay editable in the browser editor. Background
-        AI and PDF files stay in storage as uploaded but remain preview-only in the
-        browser. Seal or signature SVG/PDF/AI files are still flattened because
-        those slots behave like images.
+        Template background SVG files stay editable in the browser editor. Background AI and PDF
+        files stay in storage as uploaded but remain preview-only in the browser. Seal or signature
+        SVG/PDF/AI files are still flattened because those slots behave like images.
       </p>
 
       <div className="flex items-center gap-2">

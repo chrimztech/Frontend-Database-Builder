@@ -3,13 +3,16 @@ import { jsPDF, GState } from "jspdf";
 import QRCode from "qrcode";
 import { verificationUrl } from "./cert";
 import { loadBranding } from "./branding";
+import { isPdfMimeType, renderPdfBlobPageToDataUrl, renderSvgMarkupToDataUrl } from "./pdf-like";
 import {
-  isPdfMimeType,
-  renderPdfBlobPageToDataUrl,
-  renderSvgMarkupToDataUrl,
-} from "./pdf-like";
-import { DEFAULT_LAYOUT, DEFAULT_LOGO_OVERLAY, mmToPt, type LayoutField, type TemplateLayout } from "./template-layout";
+  DEFAULT_LAYOUT,
+  DEFAULT_LOGO_OVERLAY,
+  mmToPt,
+  type LayoutField,
+  type TemplateLayout,
+} from "./template-layout";
 import { registerCustomFontsInDoc } from "./font-loader";
+import { applyDynamicSvgTextBindings } from "./svg-template";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 export interface CertificateInput {
@@ -31,15 +34,21 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
       r.onerror = rej;
       r.readAsDataURL(blob);
     });
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function formatDate(d: string) {
   try {
     return new Date(d + "T00:00:00").toLocaleDateString(undefined, {
-      year: "numeric", month: "long", day: "numeric",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
-  } catch { return d; }
+  } catch {
+    return d;
+  }
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -51,48 +60,110 @@ function hexToRgb(hex: string): [number, number, number] {
 
 function styleToJsPdf(style?: string): "normal" | "bold" | "italic" | "bolditalic" {
   switch (style) {
-    case "bold": return "bold";
-    case "italic": return "italic";
-    case "bolditalic": return "bolditalic";
-    default: return "normal";
+    case "bold":
+      return "bold";
+    case "italic":
+      return "italic";
+    case "bolditalic":
+      return "bolditalic";
+    default:
+      return "normal";
   }
+}
+
+function addContainedBackgroundImage(doc: jsPDF, dataUrl: string, pageW: number, pageH: number) {
+  const props = doc.getImageProperties(dataUrl);
+  const imageW = Number(props.width);
+  const imageH = Number(props.height);
+
+  if (!Number.isFinite(imageW) || !Number.isFinite(imageH) || imageW <= 0 || imageH <= 0) {
+    doc.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
+    return;
+  }
+
+  const imageRatio = imageW / imageH;
+  const pageRatio = pageW / pageH;
+  const drawW = imageRatio > pageRatio ? pageW : pageH * imageRatio;
+  const drawH = imageRatio > pageRatio ? pageW / imageRatio : pageH;
+
+  doc.addImage(dataUrl, "PNG", (pageW - drawW) / 2, (pageH - drawH) / 2, drawW, drawH);
 }
 
 function getDefaultSettings() {
   return {
-    org_name: "Your Organization",
-    org_prefix: "ORG",
+    org_name: "The University of Zambia TeLs",
+    org_prefix: "TELS",
     signatory1_name: "Authorized Signatory",
-    signatory1_title: "Director",
+    signatory1_title: "Director, CICT",
     signatory2_name: "Authorized Signatory",
-    signatory2_title: "Programme Lead",
+    signatory2_title: "Manager, CTU",
   };
 }
 
-function resolveText(f: LayoutField, cert: CertificateInput, settings: ReturnType<typeof getDefaultSettings>): string {
+function buildSvgDynamicTextValues(
+  cert: CertificateInput,
+  settings: ReturnType<typeof getDefaultSettings>,
+) {
+  return {
+    recipientName: cert.recipientName,
+    programme: cert.programme,
+    issueDate: formatDate(cert.issueDate),
+    certificateId: cert.certificateId,
+    nrcNumber: cert.nrcNumber ?? "",
+    signature1Name: settings.signatory1_name,
+    signature1Title: settings.signatory1_title,
+    signature2Name: settings.signatory2_name,
+    signature2Title: settings.signatory2_title,
+  } as const;
+}
+
+function resolveText(
+  f: LayoutField,
+  cert: CertificateInput,
+  settings: ReturnType<typeof getDefaultSettings>,
+): string {
   // Custom text blocks have a staticText property
   if (f.staticText !== undefined) return f.staticText;
   switch (f.id) {
-    case "recipientName": return cert.recipientName;
-    case "programme":     return cert.programme;
-    case "issueDate":     return formatDate(cert.issueDate);
-    case "certificateId": return `ID: ${cert.certificateId}`;
-    case "nrcNumber":     return cert.nrcNumber ? `NRC: ${cert.nrcNumber}` : "";
-    case "signature1Name":  return settings.signatory1_name;
-    case "signature1Title": return settings.signatory1_title;
-    case "signature2Name":  return settings.signatory2_name;
-    case "signature2Title": return settings.signatory2_title;
-    default: return f.label ?? "";
+    case "recipientName":
+      return cert.recipientName;
+    case "programme":
+      return cert.programme;
+    case "issueDate":
+      return formatDate(cert.issueDate);
+    case "certificateId":
+      return `ID: ${cert.certificateId}`;
+    case "nrcNumber":
+      return cert.nrcNumber ? `NRC: ${cert.nrcNumber}` : "";
+    case "signature1Name":
+      return settings.signatory1_name;
+    case "signature1Title":
+      return settings.signatory1_title;
+    case "signature2Name":
+      return settings.signatory2_name;
+    case "signature2Title":
+      return settings.signatory2_title;
+    default:
+      return f.label ?? "";
   }
 }
 
-function resolveImageDataUrl(f: LayoutField, branding: Awaited<ReturnType<typeof loadBranding>> | null, qrDataUrl: string): string | null {
+function resolveImageDataUrl(
+  f: LayoutField,
+  branding: Awaited<ReturnType<typeof loadBranding>> | null,
+  qrDataUrl: string,
+): string | null {
   switch (f.id) {
-    case "qr":             return qrDataUrl;
-    case "seal":           return branding?.sealDataUrl ?? null;
-    case "signature1Image": return branding?.signatureDataUrl ?? null;
-    case "signature2Image": return branding?.signature2DataUrl ?? null;
-    default: return null; // custom image slots not yet backed by uploaded assets
+    case "qr":
+      return qrDataUrl;
+    case "seal":
+      return branding?.sealDataUrl ?? null;
+    case "signature1Image":
+      return branding?.signatureDataUrl ?? null;
+    case "signature2Image":
+      return branding?.signature2DataUrl ?? null;
+    default:
+      return null; // custom image slots not yet backed by uploaded assets
   }
 }
 
@@ -127,7 +198,9 @@ function drawField(
     if (f.kind === "image") {
       const data = resolveImageDataUrl(f, branding, qrDataUrl);
       if (data) {
-        try { doc.addImage(data, "PNG", xPt, yPt, wPt, hPt); } catch {}
+        try {
+          doc.addImage(data, "PNG", xPt, yPt, wPt, hPt);
+        } catch {}
       }
     } else if (f.kind === "shape") {
       doc.setFillColor(...hexToRgb(f.fillColor ?? "#ffffff"));
@@ -158,6 +231,117 @@ function drawField(
   }
 }
 
+async function drawBuiltInSampleBackground(
+  doc: jsPDF,
+  settings: ReturnType<typeof getDefaultSettings>,
+) {
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const x = (mm: number) => mmToPt(mm);
+  const y = (mm: number) => mmToPt(mm);
+
+  doc.setFillColor(247, 243, 231);
+  doc.rect(0, 0, W, H, "F");
+
+  doc.saveGraphicsState();
+  doc.setGState(new GState({ opacity: 0.16 }));
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(4.2);
+  doc.setTextColor(51, 91, 67);
+  const micro = "The University of Zambia TeLs";
+  for (let row = 20; row < 286; row += 5.6) {
+    const wave = Math.sin(row / 7) * 5;
+    for (let col = 18; col < 196; col += 34) {
+      doc.text(micro, x(col + wave), y(row), { angle: row % 11 > 5 ? 6 : -6 } as any);
+    }
+  }
+  doc.restoreGraphicsState();
+
+  doc.saveGraphicsState();
+  doc.setGState(new GState({ opacity: 0.28 }));
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(7);
+  for (let row = 18; row < 286; row += 38) {
+    doc.lines(
+      [
+        [x(28), y(-12)],
+        [x(44), y(14)],
+        [x(72), y(-10)],
+        [x(102), y(12)],
+      ],
+      x(28),
+      y(row),
+    );
+  }
+  doc.restoreGraphicsState();
+
+  doc.setDrawColor(139, 31, 43);
+  doc.setLineWidth(2);
+  doc.rect(x(14.5), y(13.8), x(181), y(269.8));
+  doc.setDrawColor(23, 63, 49);
+  doc.setLineWidth(1.6);
+  doc.rect(x(16.6), y(15.9), x(176.8), y(265.2));
+  doc.setDrawColor(43, 43, 43);
+  doc.setLineWidth(0.5);
+  doc.rect(x(19), y(18.3), x(172), y(260.4));
+
+  const logoData = await fetchAsDataUrl(unzaLogo.url).catch(() => null);
+  if (logoData) {
+    try {
+      doc.addImage(logoData, "PNG", x(87), y(22), x(36), y(36));
+    } catch {}
+  }
+
+  doc.setTextColor(47, 51, 54);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("THE UNIVERSITY OF ZAMBIA", x(105), y(76), { align: "center" });
+  doc.setFontSize(12.5);
+  doc.text("CENTRE FOR INFORMATION AND COMMUNICATION TECHNOLOGIES", x(105), y(86), {
+    align: "center",
+  });
+  doc.setTextColor(49, 92, 67);
+  doc.setFontSize(12.5);
+  doc.text("CONSULTANCY AND TRAINING UNIT", x(105), y(96), { align: "center" });
+  doc.setTextColor(58, 58, 58);
+  doc.setFont("times", "italic");
+  doc.setFontSize(12);
+  doc.text("Putting Quality First", x(105), y(104), { align: "center" });
+
+  doc.setTextColor(52, 56, 61);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(24);
+  doc.text("CERTIFICATE OF COMPETENCE", x(105), y(126), { align: "center" });
+  doc.setFont("times", "italic");
+  doc.setFontSize(15);
+  doc.text("This is to certify that", x(105), y(143), { align: "center" });
+  doc.text("Completed training in the following course", x(105), y(207), { align: "center" });
+  doc.text("Date:", x(93), y(246), { align: "right" });
+
+  doc.setDrawColor(36, 63, 51);
+  doc.setLineWidth(1.2);
+  doc.line(x(30), y(247.5), x(78), y(247.5));
+  doc.line(x(132), y(247.5), x(180), y(247.5));
+  doc.setTextColor(47, 51, 54);
+  doc.setFont("times", "bold");
+  doc.setFontSize(11);
+  doc.text(settings.signatory1_title || "Director, CICT", x(54), y(260), { align: "center" });
+  doc.text(settings.signatory2_title || "Manager, CTU", x(156), y(260), { align: "center" });
+
+  doc.setDrawColor(200, 157, 65);
+  doc.setLineWidth(0.8);
+  doc.rect(x(93), y(254), x(24), y(24));
+  doc.setTextColor(192, 108, 24);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text("QR", x(105), y(267), { align: "center" });
+
+  doc.setTextColor(47, 51, 54);
+  doc.setFont("courier", "bold");
+  doc.setFontSize(7);
+  doc.text("CERTIFICATE NO.", x(190), y(286), { align: "right" });
+}
+
 export async function generateCertificatePdf(cert: CertificateInput): Promise<Blob> {
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
@@ -178,17 +362,17 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   let backgroundDataUrl: string | null = null;
 
   if (branding?.templateBgSvgMarkup) {
-    backgroundDataUrl = await renderSvgMarkupToDataUrl(
+    const svgOverrides = layout.svgBackgroundOverrides ?? {};
+    const svgMarkupForRender = applyDynamicSvgTextBindings(
       branding.templateBgSvgMarkup,
-      {
+      buildSvgDynamicTextValues(cert, settings),
+      svgOverrides,
+    );
+    backgroundDataUrl = await renderSvgMarkupToDataUrl(svgMarkupForRender, {
       targetWidth: 2480,
       targetHeight: 3508,
-      },
-    ).catch(() => null);
-  } else if (
-    branding?.templateBgBlob &&
-    isPdfMimeType(branding.templateBgMimeType)
-  ) {
+    }).catch(() => null);
+  } else if (branding?.templateBgBlob && isPdfMimeType(branding.templateBgMimeType)) {
     backgroundDataUrl = await renderPdfBlobPageToDataUrl(branding.templateBgBlob, {
       targetWidth: 2480,
       targetHeight: 3508,
@@ -198,26 +382,14 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   }
 
   if (backgroundDataUrl) {
-    try { doc.addImage(backgroundDataUrl, "PNG", 0, 0, W, H); }
-    catch {
+    try {
+      addContainedBackgroundImage(doc, backgroundDataUrl, W, H);
+    } catch {
       doc.setFillColor(245, 241, 232);
       doc.rect(0, 0, W, H, "F");
     }
   } else {
-    doc.setFillColor(245, 241, 232);
-    doc.rect(0, 0, W, H, "F");
-    doc.setDrawColor(201, 164, 76);
-    doc.setLineWidth(2);
-    doc.rect(24, 24, W - 48, H - 48);
-    doc.setLineWidth(0.5);
-    doc.rect(32, 32, W - 64, H - 64);
-    doc.setTextColor(11, 29, 58);
-    doc.setFont("times", "bold");
-    doc.setFontSize(13);
-    doc.text(settings.org_name.toUpperCase(), W / 2, 60, { align: "center" });
-    doc.setFont("times", "italic");
-    doc.setFontSize(28);
-    doc.text("Certificate of Completion", W / 2, 100, { align: "center" });
+    await drawBuiltInSampleBackground(doc, settings);
   }
 
   // UNZA logo watermark overlay
@@ -227,7 +399,14 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
       doc.saveGraphicsState();
       doc.setGState(new GState({ opacity: overlay.opacity }));
       try {
-        doc.addImage(logoData, "PNG", mmToPt(overlay.x), mmToPt(overlay.y), mmToPt(overlay.w), mmToPt(overlay.h));
+        doc.addImage(
+          logoData,
+          "PNG",
+          mmToPt(overlay.x),
+          mmToPt(overlay.y),
+          mmToPt(overlay.w),
+          mmToPt(overlay.h),
+        );
       } catch {}
       doc.restoreGraphicsState();
     }
@@ -236,7 +415,9 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   // QR code
   const url = verificationUrl(cert.certificateId);
   const qrDataUrl = await QRCode.toDataURL(url, {
-    margin: 1, width: 320, color: { dark: "#0b1d3a", light: "#ffffff" },
+    margin: 1,
+    width: 320,
+    color: { dark: "#0b1d3a", light: "#ffffff" },
   });
 
   for (const f of layout.fields) {

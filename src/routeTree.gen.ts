@@ -20,7 +20,7 @@ const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/auth.lazy').then((d) => d.Route))
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -29,22 +29,26 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
 const VerifyCodeRoute = VerifyCodeRouteImport.update({
   id: '/verify/code',
   path: '/verify/code',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/verify.code.lazy').then((d) => d.Route))
 const VerifyCertificateIdRoute = VerifyCertificateIdRouteImport.update({
   id: '/verify/$certificateId',
   path: '/verify/$certificateId',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() =>
+  import('./routes/verify.$certificateId.lazy').then((d) => d.Route),
+)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/_authenticated/admin.lazy').then((d) => d.Route),
+)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute

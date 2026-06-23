@@ -1,3 +1,5 @@
+import type { FieldId } from "./template-layout";
+
 const BLOCKED_TAGS = new Set([
   "script",
   "foreignobject",
@@ -9,6 +11,327 @@ const BLOCKED_TAGS = new Set([
 ]);
 
 const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+export type SvgDynamicTextFieldId = Exclude<
+  FieldId,
+  "qr" | "seal" | "signature1Image" | "signature2Image"
+>;
+
+export type SvgDynamicTextValues = Partial<Record<SvgDynamicTextFieldId, string>>;
+
+const SVG_BINDING_ATTRS = [
+  "id",
+  "class",
+  "data-name",
+  "data-field",
+  "data-placeholder",
+  "aria-label",
+  "label",
+  "inkscape:label",
+] as const;
+
+const SVG_DYNAMIC_FIELD_DEFS: Array<{
+  id: SvgDynamicTextFieldId;
+  aliases: string[];
+  patterns: RegExp[];
+}> = [
+  {
+    id: "recipientName",
+    aliases: [
+      "recipient",
+      "recipientname",
+      "fullname",
+      "full_name",
+      "studentname",
+      "student_name",
+      "graduatename",
+      "graduate_name",
+      "holdername",
+      "holder_name",
+      "awardeename",
+      "awardee_name",
+      "participantname",
+      "participant_name",
+    ],
+    patterns: [
+      /\{\{\s*(full.?name|recipient.?name|student.?name|graduate.?name)\s*\}\}/i,
+      /^(recipient|student|graduate|holder|awardee)\s+name$/i,
+    ],
+  },
+  {
+    id: "programme",
+    aliases: [
+      "programme",
+      "program",
+      "programmename",
+      "programme_name",
+      "programname",
+      "program_name",
+      "coursename",
+      "course_name",
+      "course",
+      "qualification",
+      "subject",
+    ],
+    patterns: [
+      /\{\{\s*(programme|program|programme.?name|program.?name|course|course.?name)\s*\}\}/i,
+      /^(programme|program|course|qualification|subject)(\s+name)?$/i,
+    ],
+  },
+  {
+    id: "issueDate",
+    aliases: [
+      "issuedate",
+      "issue_date",
+      "issuedon",
+      "issued_on",
+      "awarddate",
+      "award_date",
+      "dateissued",
+      "date_issued",
+    ],
+    patterns: [
+      /\{\{\s*(issue.?date|issued.?on|award.?date|date)\s*\}\}/i,
+      /^(issue|issued|award)\s+date$/i,
+      /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/i,
+    ],
+  },
+  {
+    id: "certificateId",
+    aliases: [
+      "certificateid",
+      "certificate_id",
+      "certificatecode",
+      "certificate_code",
+      "certid",
+      "cert_id",
+      "certcode",
+      "cert_code",
+      "certificatenumber",
+      "certificate_number",
+      "certificateno",
+      "certificate_no",
+      "certnumber",
+      "cert_number",
+      "certno",
+      "cert_no",
+      "reference",
+      "serialnumber",
+      "serial_number",
+    ],
+    patterns: [
+      /\{\{\s*(certificate.?id|certificate.?code|certificate.?number|cert.?id|cert.?code|cert.?number|ref)\s*\}\}/i,
+      /^(certificate|cert)(\s+|[-_])?(id|code|number|no\.?)$/i,
+      /^[A-Z0-9-]{6,}$/i,
+    ],
+  },
+  {
+    id: "nrcNumber",
+    aliases: [
+      "nrc",
+      "nrcnumber",
+      "nrc_number",
+      "nationalid",
+      "national_id",
+      "idnumber",
+      "id_number",
+      "passportnumber",
+      "passport_number",
+    ],
+    patterns: [
+      /\{\{\s*(nrc|nrc.?number|national.?id|passport|id.?number)\s*\}\}/i,
+      /^(nrc|national\s+id|passport|id\s+number)$/i,
+      /^\d{6}\/\d{2}\/\d$/i,
+    ],
+  },
+  {
+    id: "signature1Name",
+    aliases: [
+      "signature1name",
+      "signature1_name",
+      "signatory1name",
+      "signatory1_name",
+      "firstsignatoryname",
+      "first_signatory_name",
+    ],
+    patterns: [
+      /\{\{\s*(signature1.?name|signatory1.?name|first.?signatory.?name)\s*\}\}/i,
+      /^(signature|signatory)\s*1\s*name$/i,
+    ],
+  },
+  {
+    id: "signature1Title",
+    aliases: [
+      "signature1title",
+      "signature1_title",
+      "signatory1title",
+      "signatory1_title",
+      "firstsignatorytitle",
+      "first_signatory_title",
+    ],
+    patterns: [
+      /\{\{\s*(signature1.?title|signatory1.?title|first.?signatory.?title)\s*\}\}/i,
+      /^(signature|signatory)\s*1\s*title$/i,
+    ],
+  },
+  {
+    id: "signature2Name",
+    aliases: [
+      "signature2name",
+      "signature2_name",
+      "signatory2name",
+      "signatory2_name",
+      "secondsignatoryname",
+      "second_signatory_name",
+    ],
+    patterns: [
+      /\{\{\s*(signature2.?name|signatory2.?name|second.?signatory.?name)\s*\}\}/i,
+      /^(signature|signatory)\s*2\s*name$/i,
+    ],
+  },
+  {
+    id: "signature2Title",
+    aliases: [
+      "signature2title",
+      "signature2_title",
+      "signatory2title",
+      "signatory2_title",
+      "secondsignatorytitle",
+      "second_signatory_title",
+    ],
+    patterns: [
+      /\{\{\s*(signature2.?title|signatory2.?title|second.?signatory.?title)\s*\}\}/i,
+      /^(signature|signatory)\s*2\s*title$/i,
+    ],
+  },
+];
+
+function normalizeHint(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function extractPlaceholderTokens(value: string) {
+  const tokens: string[] = [];
+  const regex = /\{\{\s*([^}]+?)\s*\}\}|\[\[\s*([^\]]+?)\s*\]\]/g;
+  let match: RegExpExecArray | null = regex.exec(value);
+
+  while (match) {
+    const token = normalizeHint(match[1] ?? match[2]);
+    if (token) tokens.push(token);
+    match = regex.exec(value);
+  }
+
+  return tokens;
+}
+
+function looksLikeNameSample(value: string) {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  return (
+    words.length >= 2 &&
+    words.length <= 5 &&
+    words.every((word) => /^[A-Z][A-Za-z'.-]+$/.test(word) || /^[A-Z]{2,}$/.test(word))
+  );
+}
+
+function shouldReplaceWholeText(fieldId: SvgDynamicTextFieldId, text: string) {
+  const raw = text.trim();
+  if (!raw) return false;
+  if (extractPlaceholderTokens(raw).length > 0) return true;
+  if (matchSvgDynamicFieldHints([raw]) === fieldId) return true;
+
+  switch (fieldId) {
+    case "recipientName":
+    case "signature1Name":
+    case "signature2Name":
+      return looksLikeNameSample(raw);
+    case "issueDate":
+      return (
+        /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/i.test(raw) ||
+        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/i.test(raw)
+      );
+    case "certificateId":
+      return /^[A-Z0-9-]{6,}$/i.test(raw) || /\bcertificate\b/i.test(raw);
+    case "nrcNumber":
+      return /^\d{6}\/\d{2}\/\d$/i.test(raw) || /\bnrc\b/i.test(raw);
+    default:
+      return raw.length <= 72;
+  }
+}
+
+function replaceSvgTemplateTokens(text: string, values: SvgDynamicTextValues) {
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}|\[\[\s*([^\]]+?)\s*\]\]/g, (token, first, second) => {
+    const fieldId = matchSvgDynamicFieldHints([first ?? second]);
+    if (!fieldId) return token;
+    return values[fieldId] ?? "";
+  });
+}
+
+export function collectSvgBindingHints(el: Element) {
+  const hints: string[] = [];
+  const seen = new Set<string>();
+  let current: Element | null = el;
+  let depth = 0;
+
+  while (current && depth < 3) {
+    if (depth === 0) {
+      const text = (current.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (text && !seen.has(text)) {
+        hints.push(text);
+        seen.add(text);
+      }
+    }
+
+    for (const attrName of SVG_BINDING_ATTRS) {
+      const value = current.getAttribute(attrName);
+      if (!value) continue;
+      const trimmed = value.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      hints.push(trimmed);
+      seen.add(trimmed);
+    }
+
+    current = current.parentElement;
+    depth += 1;
+  }
+
+  return hints;
+}
+
+export function matchSvgDynamicFieldHints(hints: Array<string | null | undefined>) {
+  for (const hint of hints) {
+    const raw = (hint ?? "").trim();
+    if (!raw) continue;
+
+    for (const token of extractPlaceholderTokens(raw)) {
+      for (const field of SVG_DYNAMIC_FIELD_DEFS) {
+        if (field.aliases.some((alias) => normalizeHint(alias) === token)) {
+          return field.id;
+        }
+      }
+    }
+
+    const normalized = normalizeHint(raw);
+    for (const field of SVG_DYNAMIC_FIELD_DEFS) {
+      if (
+        field.aliases.some((alias) => {
+          const normalizedAlias = normalizeHint(alias);
+          return (
+            normalized === normalizedAlias ||
+            (normalized.length > normalizedAlias.length && normalized.includes(normalizedAlias))
+          );
+        })
+      ) {
+        return field.id;
+      }
+
+      if (field.patterns.some((pattern) => pattern.test(raw))) {
+        return field.id;
+      }
+    }
+  }
+
+  return null;
+}
 
 export interface EditableSvgItem {
   key: string;
@@ -36,6 +359,8 @@ export interface SvgItemPatch {
   fill?: string;
   opacity?: number;
 }
+
+export type SvgItemPatchMap = Record<string, SvgItemPatch>;
 
 function parseSvgDocument(svgMarkup: string) {
   const doc = new DOMParser().parseFromString(svgMarkup, "image/svg+xml");
@@ -84,11 +409,7 @@ function writeStyleAttribute(el: Element, styles: Record<string, string>) {
   }
 }
 
-function getPresentationValue(
-  el: Element,
-  attrName: string,
-  styleName = attrName,
-) {
+function getPresentationValue(el: Element, attrName: string, styleName = attrName) {
   const attrValue = el.getAttribute(attrName);
   if (attrValue) return attrValue;
   const styles = parseStyleAttribute(el.getAttribute("style"));
@@ -115,6 +436,22 @@ function setPresentationValue(
   writeStyleAttribute(el, styles);
 }
 
+function normalizeSvgRoot(root: Element) {
+  if (!root.getAttribute("viewBox")) {
+    const width = parseNumber(root.getAttribute("width"));
+    const height = parseNumber(root.getAttribute("height"));
+
+    if (width && height) {
+      root.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    }
+  }
+
+  const preserveAspectRatio = root.getAttribute("preserveAspectRatio")?.trim().toLowerCase();
+  if (!preserveAspectRatio || preserveAspectRatio === "none") {
+    root.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  }
+}
+
 function sanitizeSvgDocument(doc: Document) {
   const root = doc.documentElement;
   let textIndex = 0;
@@ -122,6 +459,7 @@ function sanitizeSvgDocument(doc: Document) {
 
   root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   root.setAttribute("xmlns:xlink", XLINK_NS);
+  normalizeSvgRoot(root);
 
   const elements = Array.from(root.querySelectorAll("*"));
   for (const el of elements) {
@@ -165,16 +503,54 @@ function sanitizeSvgDocument(doc: Document) {
   }
 }
 
-function buildItemLabel(
+function applyDynamicTextBinding(
   el: Element,
-  kind: EditableSvgItem["kind"],
-  index: number,
-  text?: string,
+  values: SvgDynamicTextValues,
+  inheritedHints: string[],
 ) {
+  const rawText = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (!rawText) return false;
+
+  const tokenReplacement = replaceSvgTemplateTokens(rawText, values);
+  if (tokenReplacement !== rawText) {
+    el.textContent = tokenReplacement;
+    return true;
+  }
+
+  const fieldId = matchSvgDynamicFieldHints([...collectSvgBindingHints(el), ...inheritedHints]);
+  if (!fieldId) return false;
+
+  const value = values[fieldId];
+  if (value === undefined || value === null) return false;
+  if (!shouldReplaceWholeText(fieldId, rawText)) return false;
+
+  el.textContent = value;
+  return true;
+}
+
+function bindDynamicSvgText(doc: Document, values: SvgDynamicTextValues) {
+  if (Object.keys(values).length === 0) return;
+
+  for (const textEl of Array.from(doc.documentElement.querySelectorAll("text"))) {
+    const textHints = collectSvgBindingHints(textEl);
+    const childTspans = Array.from(textEl.children).filter(
+      (child) => child.tagName.toLowerCase() === "tspan",
+    );
+
+    let updatedChild = false;
+    for (const tspan of childTspans) {
+      updatedChild = applyDynamicTextBinding(tspan, values, textHints) || updatedChild;
+    }
+
+    if (!updatedChild) {
+      applyDynamicTextBinding(textEl, values, textHints);
+    }
+  }
+}
+
+function buildItemLabel(el: Element, kind: EditableSvgItem["kind"], index: number, text?: string) {
   const explicitName =
-    el.getAttribute("id") ||
-    el.getAttribute("inkscape:label") ||
-    el.getAttribute("data-name");
+    el.getAttribute("id") || el.getAttribute("inkscape:label") || el.getAttribute("data-name");
 
   if (explicitName) return explicitName;
   if (kind === "text" && text) {
@@ -219,10 +595,7 @@ function collectEditableItems(doc: Document): EditableSvgItem[] {
         key: el.getAttribute("data-editor-key") ?? `image-${imageIndex}`,
         kind: "image",
         label: buildItemLabel(el, "image", imageIndex),
-        href:
-          el.getAttribute("href") ??
-          el.getAttributeNS(XLINK_NS, "href") ??
-          undefined,
+        href: el.getAttribute("href") ?? el.getAttributeNS(XLINK_NS, "href") ?? undefined,
         x: parseNumber(el.getAttribute("x")),
         y: parseNumber(el.getAttribute("y")),
         width: parseNumber(el.getAttribute("width")),
@@ -240,9 +613,7 @@ function serializeSvg(doc: Document) {
 }
 
 function getEditableElement(doc: Document, key: string) {
-  return doc.documentElement.querySelector(
-    `[data-editor-key="${key}"]`,
-  );
+  return doc.documentElement.querySelector(`[data-editor-key="${key}"]`);
 }
 
 function setNumericAttribute(el: Element, attrName: string, value: number | undefined) {
@@ -250,7 +621,7 @@ function setNumericAttribute(el: Element, attrName: string, value: number | unde
   el.setAttribute(attrName, String(value));
 }
 
-async function fileToDataUrl(file: File) {
+export async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -259,30 +630,9 @@ async function fileToDataUrl(file: File) {
   });
 }
 
-export function inspectEditableSvgMarkup(svgMarkup: string) {
-  const doc = parseSvgDocument(svgMarkup);
-  sanitizeSvgDocument(doc);
-
-  return {
-    markup: serializeSvg(doc),
-    items: collectEditableItems(doc),
-  };
-}
-
-export function updateSvgItem(
-  svgMarkup: string,
-  key: string,
-  patch: SvgItemPatch,
-) {
-  const doc = parseSvgDocument(svgMarkup);
-  sanitizeSvgDocument(doc);
-  const el = getEditableElement(doc, key);
-
-  if (!el) {
-    return serializeSvg(doc);
-  }
-
+function applySvgItemPatch(el: Element, patch: SvgItemPatch) {
   const tagName = el.tagName.toLowerCase();
+
   if (tagName === "text") {
     if (patch.text !== undefined) {
       el.textContent = patch.text;
@@ -309,16 +659,56 @@ export function updateSvgItem(
     const nextOpacity = Math.max(0, Math.min(1, patch.opacity));
     setPresentationValue(el, "opacity", String(nextOpacity), "opacity");
   }
+}
 
+function applySvgItemPatches(doc: Document, patches?: SvgItemPatchMap) {
+  if (!patches) return;
+
+  for (const [key, patch] of Object.entries(patches)) {
+    const el = getEditableElement(doc, key);
+    if (!el) continue;
+    applySvgItemPatch(el, patch);
+  }
+}
+
+export function inspectEditableSvgMarkup(svgMarkup: string, patches?: SvgItemPatchMap) {
+  const doc = parseSvgDocument(svgMarkup);
+  sanitizeSvgDocument(doc);
+  applySvgItemPatches(doc, patches);
+
+  return {
+    markup: serializeSvg(doc),
+    items: collectEditableItems(doc),
+  };
+}
+
+export function updateSvgItem(svgMarkup: string, key: string, patch: SvgItemPatch) {
+  const doc = parseSvgDocument(svgMarkup);
+  sanitizeSvgDocument(doc);
+  const el = getEditableElement(doc, key);
+
+  if (!el) {
+    return serializeSvg(doc);
+  }
+
+  applySvgItemPatch(el, patch);
   return serializeSvg(doc);
 }
 
-export async function replaceSvgImageItemFromFile(
-  svgMarkup: string,
-  key: string,
-  file: File,
-) {
+export async function replaceSvgImageItemFromFile(svgMarkup: string, key: string, file: File) {
   return updateSvgItem(svgMarkup, key, {
     hrefDataUrl: await fileToDataUrl(file),
   });
+}
+
+export function applyDynamicSvgTextBindings(
+  svgMarkup: string,
+  values: SvgDynamicTextValues,
+  patches?: SvgItemPatchMap,
+) {
+  const doc = parseSvgDocument(svgMarkup);
+  sanitizeSvgDocument(doc);
+  applySvgItemPatches(doc, patches);
+  bindDynamicSvgText(doc, values);
+  return serializeSvg(doc);
 }

@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -12,7 +13,6 @@ import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { supabase } from "@/integrations/supabase/client";
 import { ORG_NAME } from "@/lib/cert";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
@@ -90,16 +90,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     links: [
       { rel: "icon", type: "image/png", href: unzaLogo.url },
       { rel: "stylesheet", href: appCss },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossOrigin: "anonymous",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Lato:ital,wght@0,400;0,700;1,400&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap",
-      },
     ],
   }),
   shellComponent: RootShell,
@@ -125,27 +115,48 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (
-        event !== "SIGNED_IN" &&
-        event !== "SIGNED_OUT" &&
-        event !== "USER_UPDATED"
-      ) {
+    if (pathname !== "/auth" && pathname !== "/admin") {
+      return;
+    }
+
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+
+    void import("@/integrations/supabase/client").then(({ supabase }) => {
+      if (cancelled) {
         return;
       }
 
-      router.invalidate();
-      if (event !== "SIGNED_OUT") {
-        queryClient.invalidateQueries();
-      }
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event) => {
+        if (
+          event !== "SIGNED_IN" &&
+          event !== "SIGNED_OUT" &&
+          event !== "USER_UPDATED"
+        ) {
+          return;
+        }
+
+        router.invalidate();
+        if (event !== "SIGNED_OUT") {
+          queryClient.invalidateQueries();
+        }
+      });
+
+      unsubscribe = () => subscription.unsubscribe();
     });
 
-    return () => subscription.unsubscribe();
-  }, [router, queryClient]);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [pathname, router, queryClient]);
 
   return (
     <QueryClientProvider client={queryClient}>

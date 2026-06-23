@@ -12,4 +12,62 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, "/");
+
+            if (normalizedId.endsWith("/src/integrations/supabase/client.ts")) {
+              return "supabase-client";
+            }
+
+            if (!normalizedId.includes("/node_modules/")) {
+              return undefined;
+            }
+
+            if (
+              normalizedId.includes("/node_modules/react/") ||
+              normalizedId.includes("/node_modules/react-dom/") ||
+              normalizedId.includes("/node_modules/scheduler/")
+            ) {
+              return "react-core";
+            }
+
+            if (normalizedId.includes("/node_modules/@tanstack/")) {
+              return "tanstack-core";
+            }
+
+            if (normalizedId.includes("/node_modules/@supabase/")) {
+              return "supabase-core";
+            }
+
+            if (normalizedId.includes("/node_modules/@radix-ui/")) {
+              return "radix-ui";
+            }
+
+            if (normalizedId.includes("/node_modules/lucide-react/")) {
+              return "icons";
+            }
+
+            if (normalizedId.includes("/node_modules/recharts/")) {
+              return "charts-vendor";
+            }
+
+            if (
+              normalizedId.includes("/node_modules/jspdf/") ||
+              normalizedId.includes("/node_modules/qrcode/") ||
+              normalizedId.includes("/node_modules/pdfjs-dist/") ||
+              normalizedId.includes("/node_modules/html2canvas/")
+            ) {
+              return "pdf-vendor";
+            }
+
+            return "vendor";
+          },
+        },
+      },
+    },
+  },
 });

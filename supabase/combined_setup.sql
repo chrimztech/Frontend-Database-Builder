@@ -200,6 +200,53 @@ CREATE INDEX IF NOT EXISTS certificates_course_idx ON public.certificates (cours
 CREATE INDEX IF NOT EXISTS certificates_student_idx ON public.certificates (student_id);
 CREATE INDEX IF NOT EXISTS certificates_email_status_idx ON public.certificates (email_status);
 CREATE INDEX IF NOT EXISTS certificates_code_idx ON public.certificates (certificate_code);
+CREATE INDEX IF NOT EXISTS certificates_public_code_lookup_idx ON public.certificates (certificate_code, certificate_id);
+
+CREATE OR REPLACE FUNCTION public.sync_certificate_public_code()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  NEW.certificate_code := upper(regexp_replace(coalesce(NEW.certificate_code, NEW.certificate_id), '[^A-Za-z0-9]', '', 'g'));
+  NEW.certificate_id := NEW.certificate_code;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS sync_certificate_public_code_before_write ON public.certificates;
+CREATE TRIGGER sync_certificate_public_code_before_write
+  BEFORE INSERT OR UPDATE OF certificate_id, certificate_code
+  ON public.certificates
+  FOR EACH ROW
+  EXECUTE FUNCTION public.sync_certificate_public_code();
+
+ALTER TABLE public.certificates
+  DROP CONSTRAINT IF EXISTS certificates_public_code_format_chk;
+
+ALTER TABLE public.certificates
+  ADD CONSTRAINT certificates_public_code_format_chk
+  CHECK (certificate_code ~ '^[A-Z0-9]{6,24}$' AND certificate_id = certificate_code)
+  NOT VALID;
+
+CREATE OR REPLACE VIEW public.certificate_public_code_issues AS
+SELECT
+  id,
+  certificate_id,
+  certificate_code,
+  created_at,
+  CASE
+    WHEN certificate_code IS NULL THEN 'missing_certificate_code'
+    WHEN certificate_id IS DISTINCT FROM certificate_code THEN 'id_code_mismatch'
+    WHEN certificate_code !~ '^[A-Z0-9]{6,24}$' THEN 'invalid_code_format'
+    ELSE 'unknown'
+  END AS issue
+FROM public.certificates
+WHERE certificate_code IS NULL
+   OR certificate_id IS DISTINCT FROM certificate_code
+   OR certificate_code !~ '^[A-Z0-9]+[0-9]{11}$';
+
+GRANT SELECT ON public.certificate_public_code_issues TO authenticated, service_role;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.certificates TO authenticated;
 GRANT SELECT ON public.certificates TO anon;
@@ -385,11 +432,13 @@ CREATE POLICY "Admins can append access log" ON public.student_access_log FOR IN
 CREATE INDEX IF NOT EXISTS student_access_log_student_idx ON public.student_access_log (student_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS student_access_log_actor_idx ON public.student_access_log (actor_id, created_at DESC);
 
--- ── 15. certificate_counters ───────────────────────────
+-- ── 15. certificate_counters (year-aware) ─────────────
 CREATE TABLE IF NOT EXISTS public.certificate_counters (
-  course_id  UUID PRIMARY KEY REFERENCES public.courses(id) ON DELETE CASCADE,
-  last_number INTEGER NOT NULL DEFAULT 0,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  course_id    UUID    NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  last_number  INTEGER NOT NULL DEFAULT 0,
+  year_issued  INTEGER NOT NULL DEFAULT EXTRACT(YEAR FROM now())::INTEGER,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (course_id, year_issued)
 );
 
 GRANT ALL ON public.certificate_counters TO service_role;
@@ -399,20 +448,32 @@ DROP POLICY IF EXISTS "Service role manages counters" ON public.certificate_coun
 CREATE POLICY "Service role manages counters"
   ON public.certificate_counters USING (true) WITH CHECK (true);
 
-CREATE OR REPLACE FUNCTION public.increment_certificate_counter(p_course_id UUID)
+DROP FUNCTION IF EXISTS public.increment_certificate_counter(UUID);
+
+CREATE OR REPLACE FUNCTION public.increment_certificate_counter(
+  p_course_id UUID,
+  p_year      INTEGER DEFAULT 0
+)
 RETURNS TABLE (last_number INTEGER)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_year INTEGER;
 BEGIN
-  INSERT INTO public.certificate_counters (course_id, last_number)
-    VALUES (p_course_id, 1)
-  ON CONFLICT (course_id) DO UPDATE
+  v_year := CASE WHEN p_year = 0 THEN EXTRACT(YEAR FROM now())::INTEGER ELSE p_year END;
+
+  INSERT INTO public.certificate_counters (course_id, last_number, year_issued)
+    VALUES (p_course_id, 1, v_year)
+  ON CONFLICT (course_id, year_issued) DO UPDATE
     SET last_number = public.certificate_counters.last_number + 1,
         updated_at  = now();
-  RETURN QUERY SELECT c.last_number FROM public.certificate_counters c WHERE c.course_id = p_course_id;
+
+  RETURN QUERY
+    SELECT c.last_number FROM public.certificate_counters c
+    WHERE c.course_id = p_course_id AND c.year_issued = v_year;
 END; $$;
 
-REVOKE EXECUTE ON FUNCTION public.increment_certificate_counter(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.increment_certificate_counter(UUID) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.increment_certificate_counter(UUID, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_certificate_counter(UUID, INTEGER) TO service_role;
 
 -- ── 16. user_settings (first-login password change) ───
 CREATE TABLE IF NOT EXISTS public.user_settings (
