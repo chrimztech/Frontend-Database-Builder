@@ -735,12 +735,19 @@ export function TemplateEditor({
     }
   }
 
-  function onReset() {
+  async function onReset() {
     if (!window.confirm("Reset to the default layout? All custom fields and changes will be lost."))
       return;
     pushLayout(DEFAULT_LAYOUT);
     setBgSvgOverrides({});
     setSelected(null);
+    try {
+      await saveTemplateLayout(DEFAULT_LAYOUT);
+      clearBrandingCache();
+      toast.success("Layout reset to defaults and saved");
+    } catch (err: any) {
+      toast.error(err.message ?? "Could not save reset layout");
+    }
   }
 
   async function onUseQrOnlyLayout() {

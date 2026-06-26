@@ -26,8 +26,11 @@ const CUSTOM_FONTS: CustomFontSpec[] = [
   { jsPdfName: "cinzel",    jsPdfStyle: "bold",       googleFamily: "Cinzel",             weight: 700, italic: false },
 ];
 
-// Module-level base64 cache — persists across PDF generations in a session
+// In-memory cache — persists across PDF generations within a single page load
 const fontBase64Cache = new Map<string, string>();
+
+// sessionStorage key prefix — bump the version suffix to invalidate cached fonts
+const SESSION_PREFIX = "tels_font_v1:";
 
 function fontCacheKey(name: string, style: string) {
   return `${name}:${style}`;
@@ -35,15 +38,27 @@ function fontCacheKey(name: string, style: string) {
 
 async function fetchFontBase64(spec: CustomFontSpec): Promise<string | null> {
   const key = fontCacheKey(spec.jsPdfName, spec.jsPdfStyle);
+
+  // 1. In-memory cache — fastest path
   if (fontBase64Cache.has(key)) return fontBase64Cache.get(key)!;
 
+  // 2. sessionStorage — survives page refresh so fonts are only fetched once per session
   try {
-    // Lazy-import to avoid circular dep; the server function is the only caller
+    const stored = sessionStorage.getItem(SESSION_PREFIX + key);
+    if (stored) {
+      fontBase64Cache.set(key, stored);
+      return stored;
+    }
+  } catch {}
+
+  // 3. Fetch from Google Fonts via server function
+  try {
     const { fetchGoogleFontTtf } = await import("./api/fonts.functions");
     const result = await fetchGoogleFontTtf({
       data: { family: spec.googleFamily, weight: spec.weight, italic: spec.italic },
     });
     fontBase64Cache.set(key, result.base64);
+    try { sessionStorage.setItem(SESSION_PREFIX + key, result.base64); } catch {}
     return result.base64;
   } catch (e) {
     console.warn(`[font-loader] Failed to fetch ${spec.jsPdfName} ${spec.jsPdfStyle}:`, e);
@@ -52,6 +67,15 @@ async function fetchFontBase64(spec: CustomFontSpec): Promise<string | null> {
 }
 
 const BUILTIN_FAMILIES = new Set(["helvetica", "times", "courier"]);
+
+/**
+ * Warms the font cache for every known custom font family.
+ * Call this early (in parallel with other async work) so that
+ * registerCustomFontsInDoc is instant when PDF generation begins.
+ */
+export async function preloadCustomFonts(): Promise<void> {
+  await Promise.allSettled(CUSTOM_FONTS.map(fetchFontBase64));
+}
 
 /**
  * Loads all custom font variants needed by `families` and registers them in `doc`.

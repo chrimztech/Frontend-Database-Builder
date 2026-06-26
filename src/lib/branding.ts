@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS: OrgSettings = {
   signatory2_title: "Programme Lead",
 };
 
-const TTL = 30_000;
+const TTL = 5 * 60_000; // 5 minutes
 let cache: { at: number; assets: BrandingAssets } | null = null;
 let pendingLoad: Promise<BrandingAssets> | null = null;
 

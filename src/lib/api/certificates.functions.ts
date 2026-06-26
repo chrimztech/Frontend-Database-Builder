@@ -14,7 +14,7 @@ export const generateCertificate = createServerFn({ method: "POST" })
       supabaseAdmin
         .from("enrolments")
         .select(
-          "id, student_id, course_id, students(id, full_name, email, national_id), courses(id, prefix, name)",
+          "id, student_id, course_id, certificate_id, students(id, full_name, email, national_id), courses(id, prefix, name)",
         )
         .eq("id", enrolmentId)
         .maybeSingle(),
@@ -23,6 +23,12 @@ export const generateCertificate = createServerFn({ method: "POST" })
 
     if (enrolmentRes.error) throw enrolmentRes.error;
     if (!enrolmentRes.data) throw new Error("Enrolment not found");
+
+    if (enrolmentRes.data.certificate_id) {
+      throw new Error(
+        "A certificate has already been issued for this enrolment. A student can only receive one certificate per course.",
+      );
+    }
 
     const enrolment = enrolmentRes.data;
     const student = enrolment.students as any;
@@ -171,6 +177,17 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
       .eq("id", certificateId);
 
     return { ok: true, sentTo: toEmail };
+  });
+
+export const getCertificatePdfUploadUrl = createServerFn({ method: "POST" })
+  .inputValidator(z.object({ certificateCode: z.string() }))
+  .handler(async ({ data }) => {
+    const path = `${data.certificateCode}.pdf`;
+    const { data: urlData, error } = await (supabaseAdmin as any).storage
+      .from("certificates")
+      .createSignedUploadUrl(path);
+    if (error) throw new Error(`Could not create upload URL: ${error.message}`);
+    return { signedUrl: urlData.signedUrl as string, path, token: urlData.token as string };
   });
 
 export const verifyCertificateByCode = createServerFn({ method: "POST" })

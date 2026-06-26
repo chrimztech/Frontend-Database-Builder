@@ -11,7 +11,7 @@ import {
   type LayoutField,
   type TemplateLayout,
 } from "./template-layout";
-import { registerCustomFontsInDoc } from "./font-loader";
+import { registerCustomFontsInDoc, preloadCustomFonts } from "./font-loader";
 import { applyDynamicSvgTextBindings } from "./svg-template";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
@@ -347,39 +347,58 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
 
-  const branding = await loadBranding().catch(() => null);
+  // Branding fetch and font cache warm-up run in parallel — biggest speed win on cold load
+  const [branding] = await Promise.all([
+    loadBranding().catch(() => null),
+    preloadCustomFonts(),
+  ]);
+
   const settings = branding?.settings ?? getDefaultSettings();
   const layout: TemplateLayout = branding?.layout ?? DEFAULT_LAYOUT;
   const overlay = layout.logoOverlay ?? DEFAULT_LOGO_OVERLAY;
 
-  // Register any custom (non-built-in) fonts used in this layout
+  // Register fonts in jsPDF — base64 already in cache from preload above, near-instant
   const fontFamiliesUsed = layout.fields
     .filter((f) => f.kind === "text" && f.visible && f.fontFamily)
     .map((f) => f.fontFamily!);
   await registerCustomFontsInDoc(doc, fontFamiliesUsed);
 
-  // Background
-  let backgroundDataUrl: string | null = null;
+  // Fields successfully bound into the SVG background — skip their overlay to avoid duplicates.
+  const svgBoundFields = new Set<string>();
 
+  // Kick off background rendering and QR code generation in parallel.
+  // applyDynamicSvgTextBindings is synchronous, so svgBoundFields is populated
+  // before the async rasterization begins — no race condition.
+  let backgroundPromise: Promise<string | null>;
   if (branding?.templateBgSvgMarkup) {
     const svgOverrides = layout.svgBackgroundOverrides ?? {};
-    const svgMarkupForRender = applyDynamicSvgTextBindings(
+    const { markup: svgMarkupForRender, svgBoundFieldIds } = applyDynamicSvgTextBindings(
       branding.templateBgSvgMarkup,
       buildSvgDynamicTextValues(cert, settings),
       svgOverrides,
     );
-    backgroundDataUrl = await renderSvgMarkupToDataUrl(svgMarkupForRender, {
-      targetWidth: 2480,
-      targetHeight: 3508,
+    for (const id of svgBoundFieldIds) svgBoundFields.add(id);
+    backgroundPromise = renderSvgMarkupToDataUrl(svgMarkupForRender, {
+      targetWidth: 1240,
+      targetHeight: 1754,
     }).catch(() => null);
   } else if (branding?.templateBgBlob && isPdfMimeType(branding.templateBgMimeType)) {
-    backgroundDataUrl = await renderPdfBlobPageToDataUrl(branding.templateBgBlob, {
-      targetWidth: 2480,
-      targetHeight: 3508,
+    backgroundPromise = renderPdfBlobPageToDataUrl(branding.templateBgBlob, {
+      targetWidth: 1240,
+      targetHeight: 1754,
     }).catch(() => null);
   } else {
-    backgroundDataUrl = branding?.templateBgDataUrl ?? null;
+    backgroundPromise = Promise.resolve(branding?.templateBgDataUrl ?? null);
   }
+
+  const [backgroundDataUrl, qrDataUrl] = await Promise.all([
+    backgroundPromise,
+    QRCode.toDataURL(verificationUrl(cert.certificateId), {
+      margin: 1,
+      width: 320,
+      color: { dark: "#0b1d3a", light: "#ffffff" },
+    }),
+  ]);
 
   if (backgroundDataUrl) {
     try {
@@ -412,15 +431,13 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
     }
   }
 
-  // QR code
-  const url = verificationUrl(cert.certificateId);
-  const qrDataUrl = await QRCode.toDataURL(url, {
-    margin: 1,
-    width: 320,
-    color: { dark: "#0b1d3a", light: "#ffffff" },
-  });
+  // Image fields are always drawn as overlays (SVG binding never handles images).
+  const IMAGE_OVERLAY_IDS = new Set(["qr", "seal", "signature1Image", "signature2Image"]);
 
   for (const f of layout.fields) {
+    // Skip text/shape overlays for fields the SVG background already rendered —
+    // drawing them again would double-print programme, name, etc. on top of the SVG text.
+    if (svgBoundFields.has(f.id) && !IMAGE_OVERLAY_IDS.has(f.id)) continue;
     drawField(doc, f, cert, settings, branding, qrDataUrl);
   }
 
@@ -441,13 +458,20 @@ export async function downloadCertificatePdf(cert: CertificateInput) {
 
 /** Uploads the rendered PDF to the `certificates` storage bucket. Returns public URL. */
 export async function uploadCertificatePdf(cert: CertificateInput): Promise<string> {
-  const { supabase } = await import("@/integrations/supabase/client");
   const blob = await generateCertificatePdf(cert);
-  const path = `${cert.certificateId}.pdf`;
-  const { error } = await supabase.storage
+
+  // Get a signed upload URL from the server (uses service role — bypasses client RLS)
+  const { getCertificatePdfUploadUrl } = await import("@/lib/api/certificates.functions");
+  const { signedUrl: _signedUrl, path, token } = await getCertificatePdfUploadUrl({
+    data: { certificateCode: cert.certificateId },
+  });
+
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { error: uploadError } = await supabase.storage
     .from("certificates")
-    .upload(path, blob, { upsert: true, contentType: "application/pdf" });
-  if (error) throw error;
+    .uploadToSignedUrl(path, token, blob, { contentType: "application/pdf" });
+  if (uploadError) throw new Error(`PDF upload failed: ${uploadError.message}`);
+
   const { data } = supabase.storage.from("certificates").getPublicUrl(path);
   return data.publicUrl;
 }

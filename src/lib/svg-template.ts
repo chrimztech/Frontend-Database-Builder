@@ -122,7 +122,7 @@ const SVG_DYNAMIC_FIELD_DEFS: Array<{
     patterns: [
       /\{\{\s*(certificate.?id|certificate.?code|certificate.?number|cert.?id|cert.?code|cert.?number|ref)\s*\}\}/i,
       /^(certificate|cert)(\s+|[-_])?(id|code|number|no\.?)$/i,
-      /^[A-Z0-9-]{6,}$/i,
+      /^(?=[A-Z0-9-]*\d)[A-Z0-9-]{6,}$/i,
     ],
   },
   {
@@ -229,7 +229,9 @@ function looksLikeNameSample(value: string) {
   return (
     words.length >= 2 &&
     words.length <= 5 &&
-    words.every((word) => /^[A-Z][A-Za-z'.-]+$/.test(word) || /^[A-Z]{2,}$/.test(word))
+    // Each word must be title-case (capital + at least one lowercase) — rejects ALL-CAPS phrases
+    // like "CERTIFICATE OF COMPETENCE" which would otherwise satisfy the shape test.
+    words.every((word) => /^[A-Z][a-z][A-Za-z'.-]*$/.test(word))
   );
 }
 
@@ -250,7 +252,8 @@ function shouldReplaceWholeText(fieldId: SvgDynamicTextFieldId, text: string) {
         /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/i.test(raw)
       );
     case "certificateId":
-      return /^[A-Z0-9-]{6,}$/i.test(raw) || /\bcertificate\b/i.test(raw);
+      // Must contain at least one digit to avoid matching plain uppercase words like "CERTIFICATE"
+      return /^(?=[A-Z0-9-]*\d)[A-Z0-9-]{6,}$/i.test(raw);
     case "nrcNumber":
       return /^\d{6}\/\d{2}\/\d$/i.test(raw) || /\bnrc\b/i.test(raw);
     default:
@@ -298,10 +301,22 @@ export function collectSvgBindingHints(el: Element) {
 }
 
 export function matchSvgDynamicFieldHints(hints: Array<string | null | undefined>) {
+  // Build a flat list of candidates: the raw hint plus each colon-separated segment.
+  // This handles tokens like {{NRC:nrc_number}} where the user prefixed the field name.
+  const candidates: string[] = [];
   for (const hint of hints) {
     const raw = (hint ?? "").trim();
     if (!raw) continue;
+    candidates.push(raw);
+    if (raw.includes(":")) {
+      for (const segment of raw.split(":")) {
+        const s = segment.trim();
+        if (s) candidates.push(s);
+      }
+    }
+  }
 
+  for (const raw of candidates) {
     for (const token of extractPlaceholderTokens(raw)) {
       for (const field of SVG_DYNAMIC_FIELD_DEFS) {
         if (field.aliases.some((alias) => normalizeHint(alias) === token)) {
@@ -312,15 +327,9 @@ export function matchSvgDynamicFieldHints(hints: Array<string | null | undefined
 
     const normalized = normalizeHint(raw);
     for (const field of SVG_DYNAMIC_FIELD_DEFS) {
-      if (
-        field.aliases.some((alias) => {
-          const normalizedAlias = normalizeHint(alias);
-          return (
-            normalized === normalizedAlias ||
-            (normalized.length > normalizedAlias.length && normalized.includes(normalizedAlias))
-          );
-        })
-      ) {
+      // Exact alias match only — substring/includes causes false positives on phrases
+      // like "Certificate of Competence" matching certificateId via "certificate" alias.
+      if (field.aliases.some((alias) => normalizeHint(alias) === normalized)) {
         return field.id;
       }
 
@@ -507,45 +516,67 @@ function applyDynamicTextBinding(
   el: Element,
   values: SvgDynamicTextValues,
   inheritedHints: string[],
-) {
+): SvgDynamicTextFieldId | null {
   const rawText = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-  if (!rawText) return false;
+  if (!rawText) return null;
 
   const tokenReplacement = replaceSvgTemplateTokens(rawText, values);
   if (tokenReplacement !== rawText) {
     el.textContent = tokenReplacement;
-    return true;
+    // Identify which field was bound — extract raw token contents and use the full
+    // matchSvgDynamicFieldHints logic (handles colon-prefix formats like {{NRC:nrc_number}}).
+    const rawTokenContents = Array.from(
+      rawText.matchAll(/\{\{\s*([^}]+?)\s*\}\}|\[\[\s*([^\]]+?)\s*\]\]/g),
+    ).map((m) => (m[1] ?? m[2] ?? "").trim()).filter(Boolean);
+    return rawTokenContents.length > 0 ? (matchSvgDynamicFieldHints(rawTokenContents) ?? null) : null;
   }
 
-  const fieldId = matchSvgDynamicFieldHints([...collectSvgBindingHints(el), ...inheritedHints]);
-  if (!fieldId) return false;
+  // Only match hints from the element itself — not parent group names — to avoid false positives
+  // from Illustrator layer names like "certificate_details" matching unrelated text elements.
+  const selfHints = [
+    (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+    ...SVG_BINDING_ATTRS.map((a) => el.getAttribute(a)).filter(Boolean) as string[],
+    ...inheritedHints,
+  ];
+  const fieldId = matchSvgDynamicFieldHints(selfHints);
+  if (!fieldId) return null;
 
   const value = values[fieldId];
-  if (value === undefined || value === null) return false;
-  if (!shouldReplaceWholeText(fieldId, rawText)) return false;
+  if (value === undefined || value === null) return null;
+  if (!shouldReplaceWholeText(fieldId, rawText)) return null;
 
   el.textContent = value;
-  return true;
+  return fieldId;
 }
 
-function bindDynamicSvgText(doc: Document, values: SvgDynamicTextValues) {
-  if (Object.keys(values).length === 0) return;
+function bindDynamicSvgText(doc: Document, values: SvgDynamicTextValues): Set<SvgDynamicTextFieldId> {
+  const bound = new Set<SvgDynamicTextFieldId>();
+  if (Object.keys(values).length === 0) return bound;
 
   for (const textEl of Array.from(doc.documentElement.querySelectorAll("text"))) {
-    const textHints = collectSvgBindingHints(textEl);
+    // Only pass element-level attributes as inherited hints, not parent group names,
+    // to avoid Illustrator layer names (e.g. "certificate_details") clobbering unrelated text.
+    const textHints = SVG_BINDING_ATTRS.map((a) => textEl.getAttribute(a)).filter(Boolean) as string[];
     const childTspans = Array.from(textEl.children).filter(
       (child) => child.tagName.toLowerCase() === "tspan",
     );
 
-    let updatedChild = false;
+    let updatedChild: SvgDynamicTextFieldId | null = null;
     for (const tspan of childTspans) {
-      updatedChild = applyDynamicTextBinding(tspan, values, textHints) || updatedChild;
+      const result = applyDynamicTextBinding(tspan, values, textHints);
+      if (result) {
+        bound.add(result);
+        updatedChild = result;
+      }
     }
 
     if (!updatedChild) {
-      applyDynamicTextBinding(textEl, values, textHints);
+      const result = applyDynamicTextBinding(textEl, values, textHints);
+      if (result) bound.add(result);
     }
   }
+
+  return bound;
 }
 
 function buildItemLabel(el: Element, kind: EditableSvgItem["kind"], index: number, text?: string) {
@@ -705,10 +736,10 @@ export function applyDynamicSvgTextBindings(
   svgMarkup: string,
   values: SvgDynamicTextValues,
   patches?: SvgItemPatchMap,
-) {
+): { markup: string; svgBoundFieldIds: Set<SvgDynamicTextFieldId> } {
   const doc = parseSvgDocument(svgMarkup);
   sanitizeSvgDocument(doc);
   applySvgItemPatches(doc, patches);
-  bindDynamicSvgText(doc, values);
-  return serializeSvg(doc);
+  const svgBoundFieldIds = bindDynamicSvgText(doc, values);
+  return { markup: serializeSvg(doc), svgBoundFieldIds };
 }

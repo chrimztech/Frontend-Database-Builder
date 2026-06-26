@@ -274,6 +274,32 @@ export const DEFAULT_LAYOUT: TemplateLayout = {
   svgBackgroundOverrides: {},
 };
 
+// Layout for SVG backgrounds that carry all text via {{...}} bindings.
+// All predefined text fields are hidden; image overlays are positioned to
+// match the built-in sample SVG template (2480×3508 px → A4 portrait).
+export const SVG_SAMPLE_LAYOUT: TemplateLayout = {
+  version: 1,
+  fields: [
+    // Text fields — hidden, SVG template owns all text
+    { id: "recipientName", kind: "text", visible: false, x: 19, y: 154, w: 172, h: 14 },
+    { id: "nrcNumber", kind: "text", visible: false, x: 38, y: 180, w: 134, h: 9 },
+    { id: "programme", kind: "text", visible: false, x: 24, y: 217, w: 162, h: 14 },
+    { id: "issueDate", kind: "text", visible: false, x: 100, y: 241, w: 54, h: 6 },
+    { id: "certificateId", kind: "text", visible: false, x: 148, y: 284, w: 42, h: 4.8 },
+    { id: "signature1Name", kind: "text", visible: false, x: 20, y: 266, w: 70, h: 6 },
+    { id: "signature1Title", kind: "text", visible: false, x: 18, y: 260, w: 70, h: 6 },
+    { id: "signature2Name", kind: "text", visible: false, x: 120, y: 266, w: 70, h: 6 },
+    { id: "signature2Title", kind: "text", visible: false, x: 122, y: 260, w: 70, h: 6 },
+    // Image fields — coordinates derived from SVG template units (2480×3508) → mm
+    { id: "seal", kind: "image", visible: true, x: 86, y: 17, w: 38, h: 38, opacity: 1 },
+    // Signature images sit just above their underlines (SVG line at y≈212mm)
+    { id: "signature1Image", kind: "image", visible: true, x: 27, y: 196, w: 48, h: 16 },
+    { id: "signature2Image", kind: "image", visible: true, x: 135, y: 196, w: 48, h: 16 },
+    // QR code over the SVG placeholder box (SVG: x=1086, y=2648, 308×308 px)
+    { id: "qr", kind: "image", visible: true, x: 92, y: 224, w: 26, h: 26 },
+  ],
+};
+
 export function toQrOnlyLayout(layout: TemplateLayout = DEFAULT_LAYOUT): TemplateLayout {
   const defaultQr = DEFAULT_LAYOUT.fields.find((field) => field.id === "qr");
   const existingQr = layout.fields.find((field) => field.id === "qr");

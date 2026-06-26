@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, RefreshCw } from "lucide-react";
+import { Trash2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/branding";
 import { buildIllustratorPayload, downloadIllustratorPayload } from "@/lib/illustrator-handoff";
 import { isPdfCompatibleIllustratorFile, renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
-import { DEFAULT_LAYOUT, toQrOnlyLayout } from "@/lib/template-layout";
+import { DEFAULT_LAYOUT, SVG_SAMPLE_LAYOUT, toQrOnlyLayout } from "@/lib/template-layout";
 
 const TemplateEditor = lazy(() =>
   import("@/components/admin/template-editor").then((module) => ({
@@ -57,10 +57,10 @@ const SLOTS: {
   {
     path: SEAL_PATH,
     label: "Digital seal",
+    ...SEAL_SLOT_COPY,
     description:
       "Your institution logo or crest displayed at the top of the certificate. Upload a PNG or JPEG — the white background is removed automatically.",
     recommend: "PNG or JPEG of the crest — 600×600 px recommended",
-    ...SEAL_SLOT_COPY,
     svgTarget: [600, 600],
     fillBackground: false,
   },
@@ -294,10 +294,26 @@ async function convertPdfLikeToPng(file: File, targetW: number, targetH: number)
 
 export function BrandingTab() {
   const [exportingIllustratorPayload, setExportingIllustratorPayload] = useState(false);
+  const [resettingLayout, setResettingLayout] = useState(false);
   const [editorRefresh, setEditorRefresh] = useState({
     token: 0,
     includeLayout: false,
   });
+
+  async function onResetLayout() {
+    if (!window.confirm("Reset all field positions to the defaults? This cannot be undone.")) return;
+    setResettingLayout(true);
+    try {
+      await saveTemplateLayout(DEFAULT_LAYOUT);
+      clearBrandingCache();
+      setEditorRefresh((current) => ({ token: current.token + 1, includeLayout: true }));
+      toast.success("Field positions reset to defaults");
+    } catch (err: any) {
+      toast.error(err.message ?? "Could not reset layout");
+    } finally {
+      setResettingLayout(false);
+    }
+  }
 
   async function onDownloadIllustratorPayload() {
     setExportingIllustratorPayload(true);
@@ -340,6 +356,26 @@ export function BrandingTab() {
             }
           />
         ))}
+      </div>
+
+      <div className="surface-panel rounded-xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <Label className="text-base">Field positions</Label>
+            <p className="mt-1 text-sm text-muted-foreground">
+              If field overlays are misaligned on your certificate, reset them to the standard
+              positions and then fine-tune in the template editor below.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={onResetLayout}
+            disabled={resettingLayout}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            {resettingLayout ? "Resetting…" : "Reset field positions"}
+          </Button>
+        </div>
       </div>
 
       <div className="surface-panel rounded-xl p-5">
@@ -526,9 +562,14 @@ function BrandingSlot({
     await uploadBrandingFile(path, uploadFile);
 
     if (isTemplateBackground(path)) {
-      const branding = await loadBranding().catch(() => null);
-      await saveTemplateLayout(toQrOnlyLayout(branding?.layout));
-      toast.message("Template kept as finished artwork. Only the QR code overlay is active.");
+      if (isSvgFile(file)) {
+        // SVG with {{...}} bindings renders its own text — only QR/seal/signature overlays needed
+        const branding = await loadBranding().catch(() => null);
+        await saveTemplateLayout(toQrOnlyLayout(branding?.layout));
+      } else {
+        // PDF / raster background: overlay all dynamic fields (name, NRC, programme, date, etc.)
+        await saveTemplateLayout(DEFAULT_LAYOUT);
+      }
     }
   }
 
@@ -573,7 +614,9 @@ function BrandingSlot({
 
       await uploadAsset(file);
       if (isTemplateBackground(path)) {
-        await saveTemplateLayout(DEFAULT_LAYOUT);
+        // SVG sample carries all text via {{...}} bindings — use the SVG-aware
+        // layout so text fields don't double-render on top of the SVG text.
+        await saveTemplateLayout(SVG_SAMPLE_LAYOUT);
         clearBrandingCache();
       }
       toast.success("Sample certificate template applied with editable fields");

@@ -1,6 +1,6 @@
 import { createLazyFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, useEffect, useState, type ComponentType } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Suspense, lazy, useState, type ComponentType } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Award,
@@ -288,24 +288,13 @@ function AdminPage() {
   const { section } = Route.useSearch();
   const routeContext = Route.useRouteContext() as { user?: SessionUser };
   const sessionUser = routeContext.user;
-  const [user, setUser] = useState<SessionUser | null>(sessionUser ?? null);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const user: SessionUser | null = sessionUser ?? null;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadAccess() {
-      if (!sessionUser) {
-        if (!ignore) {
-          setUser(null);
-          setIsAdmin(false);
-        }
-        return;
-      }
-
-      setUser(sessionUser);
-
+  const { data: isAdmin = null } = useQuery({
+    queryKey: ["admin-role", sessionUser?.id],
+    queryFn: async () => {
+      if (!sessionUser?.id) return false;
       const { supabase } = await getSupabaseClient();
       const { data } = await supabase
         .from("user_roles")
@@ -313,18 +302,11 @@ function AdminPage() {
         .eq("user_id", sessionUser.id)
         .eq("role", "admin")
         .maybeSingle();
-
-      if (!ignore) {
-        setIsAdmin(Boolean(data));
-      }
-    }
-
-    void loadAccess();
-
-    return () => {
-      ignore = true;
-    };
-  }, [sessionUser]);
+      return Boolean(data);
+    },
+    enabled: !!sessionUser,
+    staleTime: 5 * 60_000,
+  });
 
   async function signOut() {
     const { supabase } = await getSupabaseClient();

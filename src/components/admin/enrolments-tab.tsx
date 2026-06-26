@@ -256,12 +256,17 @@ function EnrolRow({
     if (!enrolment.student || !enrolment.course) return;
     setBusy(true);
     try {
-      // Server function: allocates counter, builds correct code (PREFIX+YYYY+seq), stores NRC
-      const cert = await generateCertificateServer({ data: { enrolmentId: enrolment.id } });
+      // Run DB cert creation, branding pre-warm, and font cache warm-up in parallel.
+      // By the time uploadCertificatePdf runs, loadBranding() and fonts hit cache instantly.
+      const [cert] = await Promise.all([
+        generateCertificateServer({ data: { enrolmentId: enrolment.id } }),
+        import("@/lib/branding").then(({ loadBranding }) => loadBranding().catch(() => null)),
+        import("@/lib/font-loader").then(({ preloadCustomFonts }) => preloadCustomFonts()),
+      ]);
 
       const issueDate = new Date().toISOString().slice(0, 10);
 
-      // Generate and upload PDF client-side
+      // Generate and upload PDF client-side — branding and fonts already cached above
       const { uploadCertificatePdf } = await import("@/lib/pdf");
       await uploadCertificatePdf({
         certificateId: cert.certificate_code,
@@ -369,7 +374,7 @@ function EnrolRow({
               <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           )}
-          {enrolment.status === "completed" && (
+          {enrolment.status === "completed" && !enrolment.certificate_id && (
             <Button size="sm" disabled={busy} onClick={generateCertificate}>
               <Award className="mr-1 h-4 w-4" />
               Generate certificate

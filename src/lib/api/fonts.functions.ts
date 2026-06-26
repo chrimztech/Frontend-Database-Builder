@@ -12,15 +12,14 @@ export const fetchGoogleFontTtf = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { family, weight, italic } = data;
 
-    // Request Google Fonts CSS with an old browser UA — this causes Google to return
-    // TTF src URLs rather than WOFF2, which jsPDF can embed directly.
+    // iOS 9 Safari: Google returns TTF src URLs (iOS < 10 has no WOFF2 support).
+    // IE6 now also gets the new kit-format URL which may return EOT, so avoid it.
+    const OLD_UA =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 9_0 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13A344 Safari/601.1";
+
     const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:ital,wght@${italic ? 1 : 0},${weight}&display=block`;
 
-    const cssResp = await fetch(cssUrl, {
-      headers: {
-        "User-Agent": "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1)",
-      },
-    });
+    const cssResp = await fetch(cssUrl, { headers: { "User-Agent": OLD_UA } });
 
     if (!cssResp.ok) {
       throw new Error(`Google Fonts CSS request failed: ${cssResp.status} for "${family}"`);
@@ -28,16 +27,17 @@ export const fetchGoogleFontTtf = createServerFn({ method: "POST" })
 
     const css = await cssResp.text();
 
-    // Extract TTF URL from the @font-face rule
-    const match = css.match(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.ttf)\)/);
+    // Accept both direct .ttf paths and kit-format URLs (l/font?kit=...).
+    // When fetching the kit URL we use the same old UA so Google returns TTF bytes.
+    const match = css.match(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/);
     if (!match) {
       throw new Error(
-        `No TTF URL found for "${family}" (weight:${weight}, italic:${italic}). ` +
-          `Google may have stopped serving TTF for this UA. CSS preview: ${css.slice(0, 300)}`,
+        `No font URL found for "${family}" (weight:${weight}, italic:${italic}). ` +
+          `CSS preview: ${css.slice(0, 300)}`,
       );
     }
 
-    const fontResp = await fetch(match[1]);
+    const fontResp = await fetch(match[1], { headers: { "User-Agent": OLD_UA } });
     if (!fontResp.ok) {
       throw new Error(`Font file download failed: ${fontResp.status} — ${match[1]}`);
     }
