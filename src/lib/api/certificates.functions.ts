@@ -109,6 +109,7 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateId: z.string().uuid() }))
   .handler(async ({ data }) => {
     const { certificateId } = data;
+    console.log("[sendCertificateEmail] called for", certificateId);
 
     // Load certificate + student details
     const { data: cert, error: certErr } = await supabaseAdmin
@@ -150,25 +151,30 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
     const recipientName = (cert as any).recipient_name ?? "Student";
     const programme = (cert as any).programme ?? "your programme";
 
-    await sendEmail({
-      to: toEmail,
-      subject: `Your Certificate — ${programme}`,
-      html: certificateEmailHtml({
-        recipientName,
-        programme,
-        certificateCode: code,
-        pdfUrl,
-        verifyUrl,
-      }),
-      text: `Dear ${recipientName},\n\nCongratulations! Your certificate for ${programme} has been issued.\n\nCertificate code: ${code}\nDownload: ${pdfUrl}\nVerify: ${verifyUrl}\n\nQuestions? Email train@unza.ac.zm or call +260 775 606 059.\n\nUNZA Technology e-Learning Services`,
-      attachments: [
-        {
-          filename: `Certificate-${pdfName}.pdf`,
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        },
-      ],
-    });
+    try {
+      await sendEmail({
+        to: toEmail,
+        subject: `Your Certificate — ${programme}`,
+        html: certificateEmailHtml({
+          recipientName,
+          programme,
+          certificateCode: code,
+          pdfUrl,
+          verifyUrl,
+        }),
+        text: `Dear ${recipientName},\n\nCongratulations! Your certificate for ${programme} has been issued.\n\nCertificate code: ${code}\nDownload: ${pdfUrl}\nVerify: ${verifyUrl}\n\nQuestions? Email train@unza.ac.zm or call +260 775 606 059.\n\nUNZA Technology e-Learning Services`,
+        attachments: [
+          {
+            filename: `Certificate-${pdfName}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
+      });
+    } catch (err: any) {
+      console.error("[sendCertificateEmail] SMTP error:", err?.message ?? err);
+      throw new Error(`Email delivery failed: ${err?.message ?? "unknown SMTP error"}`);
+    }
 
     // Mark as sent
     await supabaseAdmin

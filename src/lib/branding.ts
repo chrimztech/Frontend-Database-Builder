@@ -60,11 +60,20 @@ let pendingLoad: Promise<BrandingAssets> | null = null;
 
 async function loadBrandingFresh(): Promise<BrandingAssets> {
   const supabase = await getSupabase();
+
+  // List existing files first so we never request a file that doesn't exist.
+  // Without this, missing signatures produce 400s in the browser console even
+  // though the error is caught and handled as null.
+  const { data: fileList } = await supabase.storage.from(BRANDING_BUCKET).list();
+  const existing = new Set((fileList ?? []).map((f) => f.name));
+  const maybeDownload = (path: string) =>
+    existing.has(path) ? downloadBlob(path).catch(() => null) : Promise.resolve(null);
+
   const [sealBlob, signatureBlob, signature2Blob, bgBlob, settingsRes] = await Promise.all([
-    downloadBlob(SEAL_PATH).catch(() => null),
-    downloadBlob(SIGNATURE_PATH).catch(() => null),
-    downloadBlob(SIGNATURE2_PATH).catch(() => null),
-    downloadBlob(TEMPLATE_BG_PATH).catch(() => null),
+    maybeDownload(SEAL_PATH),
+    maybeDownload(SIGNATURE_PATH),
+    maybeDownload(SIGNATURE2_PATH),
+    maybeDownload(TEMPLATE_BG_PATH),
     supabase.from("org_settings").select("*").eq("id", true).maybeSingle(),
   ]);
   const bgSvgMarkup = bgBlob ? await readSvgMarkupFromBlob(bgBlob).catch(() => null) : null;

@@ -275,7 +275,7 @@ function StatusPill({ variant }: { variant: Variant }) {
 
 function fmt(value: string) {
   try {
-    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB", {
       year: "numeric",
       month: "long",
       day: "numeric",

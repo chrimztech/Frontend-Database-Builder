@@ -41,7 +41,7 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
 
 function formatDate(d: string) {
   try {
-    return new Date(d + "T00:00:00").toLocaleDateString(undefined, {
+    return new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
       year: "numeric",
       month: "long",
       day: "numeric",

@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Loader2,
   Mail,
   RotateCcw,
   Search,
@@ -185,6 +186,7 @@ function getCertificateCode(cert: Pick<Cert, "certificate_code" | "certificate_i
 
 function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [emailBusy, setEmailBusy] = useState(false);
   const certificateCode = getCertificateCode(cert);
 
   async function download() {
@@ -201,47 +203,22 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
   async function emailToStudent() {
     if (!cert.recipient_email) {
-      return toast.error("No email is stored on this certificate. Edit the student record first.");
+      toast.error("No email address on this certificate — update the student record first.");
+      return;
     }
 
-    setBusy(true);
+    setEmailBusy(true);
     try {
-      const { uploadCertificatePdf } = await import("@/lib/pdf");
-      const pdfUrl = await uploadCertificatePdf({
-        certificateId: certificateCode,
-        recipientName: cert.recipient_name,
-        programme: cert.programme,
-        issueDate: cert.issue_date,
-        issuerName: cert.issuer_name,
-        nrcNumber: cert.national_id ?? undefined,
-      });
-
-      const verify = verificationUrl(certificateCode);
-      const subject = encodeURIComponent(`Your certificate: ${cert.programme}`);
-      const body = encodeURIComponent(
-        `Dear ${cert.recipient_name},\n\nCongratulations on completing ${cert.programme}.\n\n` +
-          `Your certificate is attached and can also be downloaded here:\n${pdfUrl}\n\n` +
-          `You or any employer can verify it here:\n${verify}\n\n` +
-          `Certificate ID: ${certificateCode}\n\nBest regards,\n${cert.issuer_name}`,
-      );
-
-      window.open(`mailto:${cert.recipient_email}?subject=${subject}&body=${body}`, "_blank");
-
-      await supabase
-        .from("certificates")
-        .update({
-          email_status: "sent",
-          email_sent_at: new Date().toISOString(),
-          email_attempts: 1,
-        })
-        .eq("id", cert.id);
-
-      toast.success("Email opened in your mail client and marked as sent.");
+      const { sendCertificateEmail } = await import("@/lib/api/certificates.functions");
+      await sendCertificateEmail({ data: { certificateId: cert.id } });
+      toast.success(`Certificate emailed to ${cert.recipient_email}`);
       onChange();
     } catch (error: any) {
-      toast.error(error.message ?? "Failed");
+      const msg = error?.message ?? error?.data?.message ?? String(error) ?? "Failed to send email";
+      toast.error(msg);
+      console.error("[email] send failed:", error);
     } finally {
-      setBusy(false);
+      setEmailBusy(false);
     }
   }
 
@@ -366,10 +343,13 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
             size="sm"
             variant="outline"
             onClick={emailToStudent}
-            disabled={busy}
-            title="Email to student"
+            disabled={busy || emailBusy}
+            title={cert.recipient_email ? `Email to ${cert.recipient_email}` : "No email on record"}
           >
-            <Mail className="h-4 w-4" />
+            {emailBusy
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Mail className="h-4 w-4" />
+            }
           </Button>
           <Button
             size="sm"

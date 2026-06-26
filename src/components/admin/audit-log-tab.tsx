@@ -9,6 +9,7 @@ type Row = {
   id: string;
   action: string;
   actor_id: string | null;
+  actor_email: string | null;
   detail: string | null;
   created_at: string;
   student_id: string | null;
@@ -24,7 +25,7 @@ export function AuditLogTab() {
     setLoading(true);
     const { data, error } = await supabase
       .from("student_access_log")
-      .select("id, action, actor_id, detail, created_at, student_id, students(full_name, email)")
+      .select("id, action, actor_id, actor_email, detail, created_at, student_id, students(full_name, email)")
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) toast.error(error.message);
@@ -45,13 +46,13 @@ export function AuditLogTab() {
   });
 
   function exportCsv() {
-    const header = ["timestamp", "action", "actor_id", "student_name", "student_email", "detail"];
+    const header = ["timestamp", "action", "actor", "student_name", "student_email", "detail"];
     const lines = [header.join(",")].concat(
       filtered.map((r) =>
         [
           r.created_at,
           r.action,
-          r.actor_id ?? "",
+          r.actor_email ?? r.actor_id ?? "",
           r.students?.full_name ?? "",
           r.students?.email ?? "",
           (r.detail ?? "").replace(/"/g, '""'),
@@ -112,7 +113,9 @@ export function AuditLogTab() {
                   <td className="p-2"><span className="rounded bg-muted px-1.5 py-0.5 text-xs">{r.action}</span></td>
                   <td className="p-2">{r.students?.full_name ?? <span className="text-muted-foreground">-</span>}</td>
                   <td className="p-2 text-xs text-muted-foreground max-w-md truncate">{r.detail}</td>
-                  <td className="p-2 text-xs font-mono text-muted-foreground">{r.actor_id?.slice(0, 8) ?? "-"}</td>
+                  <td className="p-2 text-xs text-muted-foreground">
+                    {r.actor_email ?? (r.actor_id ? r.actor_id.slice(0, 8) : "-")}
+                  </td>
                 </tr>
               ))
             )}
