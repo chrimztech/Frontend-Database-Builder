@@ -49,6 +49,7 @@ import {
   AdminPanelHeader,
   AdminStat,
 } from "@/components/admin/admin-ui";
+import { CsvImportDialog } from "@/components/admin/csv-import-dialog";
 
 type StudentCategory = "unza" | "non_unza";
 type Student = {
@@ -186,7 +187,12 @@ export function StudentsTab() {
         eyebrow="People"
         title="Student records"
         description="Manage student identity data, category-based fee eligibility, and the audit-sensitive personal details used in enrolment and certification."
-        actions={<StudentDialog onSaved={refresh} />}
+        actions={
+          <div className="flex gap-2">
+            <CsvImportDialog onImported={refresh} />
+            <StudentDialog onSaved={refresh} />
+          </div>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

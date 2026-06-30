@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock,
+  DatabaseBackup,
   FileEdit,
   LayoutDashboard,
   LogOut,
@@ -96,6 +97,11 @@ const SettingsTab = lazy(() =>
     default: module.SettingsTab,
   })),
 );
+const BackupTab = lazy(() =>
+  import("@/components/admin/backup-tab").then((module) => ({
+    default: module.BackupTab,
+  })),
+);
 
 type NavItem = {
   id: SectionId;
@@ -154,6 +160,7 @@ const NAV: NavGroup[] = [
       { id: "branding", icon: Palette, label: "Branding" },
       { id: "template", icon: FileEdit, label: "Template editor" },
       { id: "settings", icon: Settings, label: "Settings" },
+      { id: "backup", icon: DatabaseBackup, label: "Backup & export" },
     ],
   },
 ];
@@ -216,6 +223,10 @@ const SECTION_META: Record<SectionId, { eyebrow: string; description: string }> 
     eyebrow: "Configuration",
     description: "Maintain system-level defaults, behaviours, and supporting options.",
   },
+  backup: {
+    eyebrow: "Configuration",
+    description: "Export all records and storage files for safekeeping and disaster recovery.",
+  },
 };
 
 const ALL_ITEMS = NAV.flatMap((group) => group.items);
@@ -277,6 +288,8 @@ function renderSection(section: SectionId) {
       return <TemplateEditor />;
     case "settings":
       return <SettingsTab />;
+    case "backup":
+      return <BackupTab />;
     default:
       return null;
   }
@@ -462,45 +475,55 @@ function AdminPage() {
       )}
 
       <div className="flex min-h-screen flex-1 flex-col md:ml-72">
-        <header className="sticky top-0 z-20 border-b border-white/60 bg-background/82 backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <header className="sticky top-0 z-20" style={{ background: "var(--primary)" }}>
+          <div className="flex items-center justify-between gap-4 px-5 py-2.5">
+            {/* Mobile hamburger + UNZA branding */}
             <div className="flex items-center gap-3">
               <button
-                className="rounded-xl border border-border/70 bg-white/70 p-2 shadow-[var(--shadow-soft)] backdrop-blur-sm md:hidden"
+                className="rounded-xl border border-white/30 bg-white/15 p-2 md:hidden"
                 onClick={() => setDrawerOpen(true)}
                 aria-label="Open menu"
               >
-                <Menu className="h-5 w-5" />
+                <Menu className="h-5 w-5 text-white" />
               </button>
 
-              <div>
-                <p className="kicker">{currentMeta.eyebrow}</p>
-                <h1 className="mt-1 text-2xl text-foreground">{getLabel(section)}</h1>
-                <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
-                  {currentMeta.description}
-                </p>
-              </div>
+              <Link to="/" className="flex items-center gap-3">
+                <div className="hidden leading-snug sm:block">
+                  <div className="font-display text-[18px] font-extrabold uppercase tracking-wide text-white drop-shadow-sm">
+                    University of Zambia
+                  </div>
+                  <div className="text-[11px] font-semibold text-white/90">
+                    Centre for Information and Communication Technologies (CICT)
+                  </div>
+                  <div className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-white/80">
+                    Technology and e-Learning Support Unit (TeLS)
+                  </div>
+                </div>
+              </Link>
             </div>
 
-            <div className="hidden items-center gap-3 lg:flex">
-              <Link
-                to="/"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground"
-              >
-                Public verification
-              </Link>
-              <div className="rounded-full border border-border/80 bg-white/74 px-4 py-2 shadow-[var(--shadow-soft)]">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Active user
+            {/* User info + sign out */}
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right lg:block">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
+                  Signed in as
                 </p>
-                <p className="text-sm font-semibold text-foreground">{user?.email}</p>
+                <p className="text-sm font-semibold text-white">{user?.email}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={signOut}>
-                <LogOut className="mr-1 h-4 w-4" />
-                Sign out
-              </Button>
+              <button
+                onClick={signOut}
+                className="inline-flex items-center gap-2 rounded border border-white/40 bg-white/15 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/25"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Sign out</span>
+              </button>
             </div>
           </div>
+
+          {/* Thin red separator */}
+          <div className="h-[3px] w-full" style={{ background: "#cc0000" }} />
+          {/* White ribbon */}
+          <div className="h-3 w-full bg-white" />
         </header>
 
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">

@@ -396,7 +396,7 @@ const FIELD_SIZE: Partial<Record<FieldId, { w: number; h: number }>> = {
   issueDate:       { w:  54, h:  6 },
   certificateId:   { w:  42, h:  5 },
   nrcNumber:       { w: 134, h:  9 },
-  qr:              { w:  24, h: 24 },
+  qr:              { w:  26, h: 26 },
   seal:            { w:  38, h: 38 },
   signature1Image: { w:  48, h: 16 },
   signature1Name:  { w:  70, h:  6 },

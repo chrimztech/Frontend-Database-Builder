@@ -275,10 +275,10 @@ async function drawBuiltInSampleBackground(
   }
   doc.restoreGraphicsState();
 
-  doc.setDrawColor(139, 31, 43);
+  doc.setDrawColor(26, 92, 46);
   doc.setLineWidth(2);
   doc.rect(x(14.5), y(13.8), x(181), y(269.8));
-  doc.setDrawColor(23, 63, 49);
+  doc.setDrawColor(14, 61, 31);
   doc.setLineWidth(1.6);
   doc.rect(x(16.6), y(15.9), x(176.8), y(265.2));
   doc.setDrawColor(43, 43, 43);
@@ -396,7 +396,7 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
     QRCode.toDataURL(verificationUrl(cert.certificateId), {
       margin: 1,
       width: 320,
-      color: { dark: "#0b1d3a", light: "#ffffff" },
+      color: { dark: "#1a5c2e", light: "#ffffff" },
     }),
   ]);
 
@@ -456,22 +456,24 @@ export async function downloadCertificatePdf(cert: CertificateInput) {
   URL.revokeObjectURL(url);
 }
 
-/** Uploads the rendered PDF to the `certificates` storage bucket. Returns public URL. */
+/** Renders the certificate and uploads the PDF directly to Cloudflare R2. */
 export async function uploadCertificatePdf(cert: CertificateInput): Promise<string> {
   const blob = await generateCertificatePdf(cert);
 
-  // Get a signed upload URL from the server (uses service role — bypasses client RLS)
+  // Get a presigned PUT URL from the server (R2 credentials stay server-side)
   const { getCertificatePdfUploadUrl } = await import("@/lib/api/certificates.functions");
-  const { signedUrl: _signedUrl, path, token } = await getCertificatePdfUploadUrl({
+  const { presignedUrl, key } = await getCertificatePdfUploadUrl({
     data: { certificateCode: cert.certificateId },
   });
 
-  const { supabase } = await import("@/integrations/supabase/client");
-  const { error: uploadError } = await supabase.storage
-    .from("certificates")
-    .uploadToSignedUrl(path, token, blob, { contentType: "application/pdf" });
-  if (uploadError) throw new Error(`PDF upload failed: ${uploadError.message}`);
+  // Upload directly from the browser to R2 via the presigned URL
+  const res = await fetch(presignedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/pdf" },
+    body: blob,
+  });
+  if (!res.ok) throw new Error(`PDF upload failed: ${res.status} ${res.statusText}`);
 
-  const { data } = supabase.storage.from("certificates").getPublicUrl(path);
-  return data.publicUrl;
+  // Return the key so callers can build a URL if needed
+  return key;
 }

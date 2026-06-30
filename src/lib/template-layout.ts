@@ -92,6 +92,17 @@ export interface TemplateLayout {
   svgBackgroundOverrides?: Record<string, SvgBackgroundOverride>;
 }
 
+const LEGACY_QR_BOX_UPGRADES = [
+  {
+    from: { x: 93, y: 254, w: 24, h: 24 },
+    to: { x: 92, y: 253, w: 26, h: 26 },
+  },
+  {
+    from: { x: 92, y: 224, w: 26, h: 26 },
+    to: { x: 91, y: 223, w: 28, h: 28 },
+  },
+] as const;
+
 export const FIELD_LABELS: Record<FieldId, string> = {
   recipientName: "Recipient name",
   programme: "Programme",
@@ -127,6 +138,21 @@ export const FIELD_KINDS: Record<FieldId, FieldKind> = {
 export function getFieldLabel(f: LayoutField): string {
   if (f.label) return f.label;
   return FIELD_LABELS[f.id as FieldId] ?? f.id;
+}
+
+function matchesBox(field: LayoutField, box: { x: number; y: number; w: number; h: number }) {
+  return (
+    Math.abs(field.x - box.x) < 0.05 &&
+    Math.abs(field.y - box.y) < 0.05 &&
+    Math.abs(field.w - box.w) < 0.05 &&
+    Math.abs(field.h - box.h) < 0.05
+  );
+}
+
+function upgradeLegacyQrField(field: LayoutField): LayoutField {
+  if (field.id !== "qr") return field;
+  const upgrade = LEGACY_QR_BOX_UPGRADES.find(({ from }) => matchesBox(field, from));
+  return upgrade ? { ...field, ...upgrade.to } : field;
 }
 
 export function isPredefined(id: string): id is FieldId {
@@ -255,7 +281,7 @@ export const DEFAULT_LAYOUT: TemplateLayout = {
       color: "#2f3336",
       align: "center",
     },
-    { id: "qr", kind: "image", visible: true, x: 93, y: 254, w: 24, h: 24 },
+    { id: "qr", kind: "image", visible: true, x: 92, y: 253, w: 26, h: 26 },
     {
       id: "certificateId",
       kind: "text",
@@ -295,8 +321,8 @@ export const SVG_SAMPLE_LAYOUT: TemplateLayout = {
     // Signature images sit just above their underlines (SVG line at y≈212mm)
     { id: "signature1Image", kind: "image", visible: true, x: 27, y: 196, w: 48, h: 16 },
     { id: "signature2Image", kind: "image", visible: true, x: 135, y: 196, w: 48, h: 16 },
-    // QR code over the SVG placeholder box (SVG: x=1086, y=2648, 308×308 px)
-    { id: "qr", kind: "image", visible: true, x: 92, y: 224, w: 26, h: 26 },
+    // QR code centered over the SVG placeholder box (SVG: x=1086, y=2648, 308×308 px)
+    { id: "qr", kind: "image", visible: true, x: 91, y: 223, w: 28, h: 28 },
   ],
 };
 
@@ -338,7 +364,7 @@ export function ensureLayout(raw: unknown): TemplateLayout {
   // custom fields are kept as-is. Fields not present in saved are absent (user deleted them).
   const fields: LayoutField[] = obj.fields.map((saved) => {
     const def = defaultById.get(saved.id);
-    return def ? { ...def, ...saved } : { ...saved };
+    return upgradeLegacyQrField(def ? { ...def, ...saved } : { ...saved });
   });
 
   const logoOverlay: LogoOverlay = obj.logoOverlay

@@ -276,10 +276,13 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
     setBusy(true);
     try {
-      await supabase.storage
-        .from("certificates")
-        .remove([`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`])
-        .catch(() => {});
+      // Delete PDF from R2 (fire-and-forget — DB record deletion is the important part)
+      const { deleteR2Files } = await import("@/lib/api/r2.functions");
+      await deleteR2Files({
+        data: {
+          keys: [`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`],
+        },
+      }).catch(() => {});
 
       const { error } = await supabase.from("certificates").delete().eq("id", cert.id);
 

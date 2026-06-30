@@ -59,42 +59,44 @@ function Home() {
 
   return (
     <div className="min-h-screen">
-      <header className="relative z-20">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      {/* ── Main nav bar (UNZA green) ── */}
+      <header className="relative z-20" style={{ background: "var(--primary)" }}>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-2.5">
+          {/* Logo + institution name */}
           <a href="/" className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/50 bg-white/70 shadow-[var(--shadow-soft)] backdrop-blur-sm">
-              <img
-                src={unzaLogo.url}
-                alt="University of Zambia"
-                className="h-9 w-9 object-contain"
-              />
-            </div>
-            <div className="leading-tight">
-              <div className="font-display text-xl font-semibold tracking-tight text-foreground">
-                {ORG_NAME}
+            <img
+              src={unzaLogo.url}
+              alt="University of Zambia"
+              className="h-16 w-16 object-contain drop-shadow"
+            />
+            <div className="leading-snug">
+              <div className="font-display text-[20px] font-extrabold uppercase tracking-wide text-white drop-shadow-sm">
+                University of Zambia
               </div>
-              <div className="hidden text-[11px] uppercase tracking-[0.24em] text-muted-foreground sm:block">
-                {ORG_FULL_NAME}
+              <div className="text-[12px] font-semibold text-white/90">
+                Centre for Information and Communication Technologies (CICT)
+              </div>
+              <div className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-white/80">
+                Technology and e-Learning Support Unit (TeLS)
               </div>
             </div>
           </a>
 
-          <div className="flex items-center gap-3">
-            <a
-              href={`mailto:${ORG_EMAIL}`}
-              className="hidden text-sm font-medium text-muted-foreground hover:text-foreground lg:inline"
-            >
-              {ORG_EMAIL}
-            </a>
-            <a
-              href="/auth"
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-input/90 bg-white/85 px-3 text-xs font-semibold shadow-[var(--shadow-soft)] backdrop-blur-sm hover:border-primary/15 hover:bg-white hover:text-foreground"
-            >
-              Admin sign in
-            </a>
-          </div>
+          {/* Admin sign-in */}
+          <a
+            href="/auth"
+            className="inline-flex h-9 items-center justify-center rounded border border-white/40 bg-white/15 px-4 text-sm font-semibold text-white transition-colors hover:bg-white/25"
+          >
+            Admin sign in
+          </a>
         </div>
       </header>
+
+      {/* Thin red separator — matches Zambian flag colours */}
+      <div className="h-[3px] w-full" style={{ background: "#cc0000" }} />
+
+      {/* White ribbon stripe */}
+      <div className="h-3 w-full bg-white" />
 
       <main className="pb-16">
         <section className="relative overflow-hidden">

@@ -43,7 +43,7 @@
   --shadow-soft: 0 20px 48px -28px color-mix(in oklab, var(--navy) 28%, transparent);
   --shadow-elegant: 0 28px 80px -32px color-mix(in oklab, var(--navy) 40%, transparent);
   --shadow-gold: 0 0 0 1px color-mix(in oklab, var(--gold) 40%, transparent), 0 18px 36px -24px color-mix(in oklab, var(--gold) 40%, transparent);
-  --gradient-hero: linear-gradient(135deg, oklch(0.30 0.10 150) 0%, oklch(0.25 0.08 150) 42%, oklch(0.19 0.05 150) 100%);
+  --gradient-hero: linear-gradient(135deg, oklch(0.32 0.14 150) 0%, oklch(0.26 0.11 150) 42%, oklch(0.20 0.08 150) 100%);
   --gradient-surface: linear-gradient(180deg, color-mix(in oklab, white 94%, var(--gold) 6%) 0%, color-mix(in oklab, white 98%, var(--navy) 2%) 100%);
   --gradient-gold: linear-gradient(135deg, oklch(0.82 0.16 88), oklch(0.70 0.16 75));
 }
@@ -51,10 +51,10 @@
 :root {
   --radius: 0.9rem;
 
-  /* "navy" token kept as the brand primary, retuned to UNZA forest green */
-  --navy: oklch(0.34 0.11 150);
+  /* UNZA brand: forest green #1a5c2e / gold #c9a44c */
+  --navy: oklch(0.34 0.13 150);
   --navy-foreground: oklch(0.98 0.02 95);
-  --gold: oklch(0.78 0.16 85);
+  --gold: oklch(0.78 0.17 82);
   --gold-foreground: oklch(0.22 0.08 150);
 
   --background: oklch(0.985 0.008 95);
@@ -65,7 +65,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.05 150);
 
-  --primary: oklch(0.34 0.11 150);
+  --primary: oklch(0.34 0.13 150);
   --primary-foreground: oklch(0.98 0.02 95);
   --secondary: oklch(0.94 0.02 95);
   --secondary-foreground: oklch(0.28 0.08 150);
@@ -81,7 +81,7 @@
 
   --border: oklch(0.88 0.02 120);
   --input: oklch(0.88 0.02 120);
-  --ring: oklch(0.34 0.11 150);
+  --ring: oklch(0.34 0.13 150);
 }
 
 .dark {

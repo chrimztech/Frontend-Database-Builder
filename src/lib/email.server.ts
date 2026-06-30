@@ -49,7 +49,7 @@ export function certificateEmailHtml({
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%">
         <!-- Header -->
         <tr>
-          <td style="background:#0b1d3a;padding:28px 40px;text-align:center">
+          <td style="background:#1a5c2e;padding:28px 40px;text-align:center">
             <p style="margin:0;color:#c9a44c;font-size:13px;letter-spacing:2px;text-transform:uppercase">University of Zambia</p>
             <h1 style="margin:6px 0 0;color:#ffffff;font-size:22px;font-weight:700">Technology e-Learning Services</h1>
           </td>
@@ -66,9 +66,9 @@ export function certificateEmailHtml({
             <!-- Certificate code box -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px">
               <tr>
-                <td style="background:#f0f4ff;border:1px solid #c8d8ff;border-radius:6px;padding:16px 20px">
+                <td style="background:#edf7f0;border:1px solid #b5d9c4;border-radius:6px;padding:16px 20px">
                   <p style="margin:0 0 4px;font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px">Certificate code</p>
-                  <p style="margin:0;font-size:20px;font-weight:700;color:#0b1d3a;letter-spacing:2px;font-family:monospace">${certificateCode}</p>
+                  <p style="margin:0;font-size:20px;font-weight:700;color:#1a5c2e;letter-spacing:2px;font-family:monospace">${certificateCode}</p>
                 </td>
               </tr>
             </table>
@@ -80,12 +80,12 @@ export function certificateEmailHtml({
             <table cellpadding="0" cellspacing="0" style="margin-bottom:32px">
               <tr>
                 <td style="padding-right:12px">
-                  <a href="${pdfUrl}" style="display:inline-block;background:#c9a44c;color:#0b1d3a;text-decoration:none;font-weight:700;font-size:14px;padding:12px 24px;border-radius:6px">
+                  <a href="${pdfUrl}" style="display:inline-block;background:#c9a44c;color:#1a5c2e;text-decoration:none;font-weight:700;font-size:14px;padding:12px 24px;border-radius:6px">
                     Download PDF
                   </a>
                 </td>
                 <td>
-                  <a href="${verifyUrl}" style="display:inline-block;background:#f0f4ff;color:#0b1d3a;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:6px;border:1px solid #c8d8ff">
+                  <a href="${verifyUrl}" style="display:inline-block;background:#edf7f0;color:#1a5c2e;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:6px;border:1px solid #b5d9c4">
                     Verify certificate
                   </a>
                 </td>
@@ -94,7 +94,7 @@ export function certificateEmailHtml({
 
             <p style="margin:0;font-size:14px;color:#666;line-height:1.5">
               If you have any questions please contact us at
-              <a href="mailto:train@unza.ac.zm" style="color:#0b1d3a">train@unza.ac.zm</a>
+              <a href="mailto:train@unza.ac.zm" style="color:#1a5c2e">train@unza.ac.zm</a>
               or call +260 775 606 059.
             </p>
           </td>

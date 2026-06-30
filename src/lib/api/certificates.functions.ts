@@ -4,6 +4,7 @@ import { createCertificateWithCode } from "../certificate";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { signPayload, verifySignature } from "../certificate-signing";
 import { sendEmail, certificateEmailHtml } from "../email.server";
+import { getPresignedUploadUrl, downloadFromR2, getPublicOrPresignedUrl } from "@/lib/r2.server";
 
 export const generateCertificate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ enrolmentId: z.string().uuid() }))
@@ -128,22 +129,19 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
         "This certificate has no recipient email address — update the student record first.",
       );
 
-    // Resolve the PDF storage path. New flow uses certificate_code; keep the
-    // legacy certificate_id fallback only for older records.
+    // Resolve the PDF key. New flow uses certificate_code; legacy fallback to certificate_id.
     const pdfName = (cert as any).certificate_code ?? (cert as any).certificate_id;
     if (!pdfName) throw new Error("Certificate has no ID or code — cannot locate PDF.");
 
-    // Download the PDF from the certificates storage bucket
-    const { data: pdfBlob, error: dlErr } = await supabaseAdmin.storage
-      .from("certificates")
-      .download(`${pdfName}.pdf`);
-    if (dlErr) throw new Error(`Could not retrieve PDF: ${dlErr.message}`);
+    const pdfKey = `${pdfName}.pdf`;
 
-    const pdfBuffer = Buffer.from(await pdfBlob.arrayBuffer());
+    // Download the PDF from R2
+    const pdfBuffer = await downloadFromR2(pdfKey).catch((err) => {
+      throw new Error(`Could not retrieve PDF from storage: ${err.message}`);
+    });
 
-    // Public URL for the PDF and verify link (from env or derived)
-    const supabaseUrl = process.env.SUPABASE_URL ?? "";
-    const pdfUrl = `${supabaseUrl}/storage/v1/object/public/certificates/${pdfName}.pdf`;
+    // Generate a shareable URL for the PDF (public URL or presigned 7-day link)
+    const pdfUrl = await getPublicOrPresignedUrl(pdfKey);
     const appUrl = process.env.APP_URL ?? "https://tels.unza.ac.zm";
     const code = (cert as any).certificate_code ?? (cert as any).certificate_id ?? "";
     const verifyUrl = `${appUrl}/verify/${encodeURIComponent(code)}`;
@@ -188,12 +186,9 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
 export const getCertificatePdfUploadUrl = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateCode: z.string() }))
   .handler(async ({ data }) => {
-    const path = `${data.certificateCode}.pdf`;
-    const { data: urlData, error } = await (supabaseAdmin as any).storage
-      .from("certificates")
-      .createSignedUploadUrl(path);
-    if (error) throw new Error(`Could not create upload URL: ${error.message}`);
-    return { signedUrl: urlData.signedUrl as string, path, token: urlData.token as string };
+    const key = `${data.certificateCode}.pdf`;
+    const presignedUrl = await getPresignedUploadUrl(key);
+    return { presignedUrl, key };
   });
 
 export const verifyCertificateByCode = createServerFn({ method: "POST" })

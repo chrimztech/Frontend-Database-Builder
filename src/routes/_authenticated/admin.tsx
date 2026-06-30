@@ -16,7 +16,8 @@ export type SectionId =
   | "audit"
   | "branding"
   | "template"
-  | "settings";
+  | "settings"
+  | "backup";
 
 const SECTION_IDS = new Set<SectionId>([
   "overview",
@@ -33,6 +34,7 @@ const SECTION_IDS = new Set<SectionId>([
   "branding",
   "template",
   "settings",
+  "backup",
 ]);
 
 function isSectionId(value: unknown): value is SectionId {
