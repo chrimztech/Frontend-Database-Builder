@@ -441,7 +441,20 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
     drawField(doc, f, cert, settings, branding, qrDataUrl);
   }
 
-  return doc.output("blob");
+  try {
+    return doc.output("blob");
+  } catch (err) {
+    // A corrupted custom font registration can cause jsPDF to fail on output.
+    // Recover by rebuilding with only built-in fonts and the default background.
+    console.warn("[pdf] doc.output() failed — retrying with built-in fonts only:", err);
+    const fallback = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    await drawBuiltInSampleBackground(fallback, settings);
+    for (const f of layout.fields) {
+      if (svgBoundFields.has(f.id) && !IMAGE_OVERLAY_IDS.has(f.id)) continue;
+      drawField(fallback, { ...f, fontFamily: undefined }, cert, settings, branding, qrDataUrl);
+    }
+    return fallback.output("blob");
+  }
 }
 
 export async function downloadCertificatePdf(cert: CertificateInput) {

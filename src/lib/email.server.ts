@@ -28,18 +28,44 @@ export async function sendEmail({
 }) {
   const from = process.env.SMTP_FROM ?? `"UNZA TeLS" <train@unza.ac.zm>`;
   const transport = createTransport();
-  await transport.sendMail({ from, to, subject, html, text, attachments });
+  const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@unza.ac.zm>`;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject,
+    html,
+    text,
+    attachments,
+    messageId,
+    headers: {
+      // Help spam filters understand this is legitimate transactional mail
+      "X-Mailer": "UNZA-TeLS-Mailer/1.0",
+      "X-Entity-Ref-ID": messageId,
+      // Tell Gmail this is transactional, not bulk marketing
+      "Precedence": "bulk",
+      // Provide an unsubscribe path so spam filters trust the sender more
+      "List-Unsubscribe": "<mailto:train@unza.ac.zm?subject=unsubscribe>",
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  });
 }
 
 export function certificateEmailHtml({
-  recipientName, programme, certificateCode, pdfUrl, verifyUrl,
+  recipientName, programme, certificateCode, pdfUrl, verifyUrl, logoSrc,
 }: {
   recipientName: string;
   programme: string;
   certificateCode: string;
   pdfUrl: string;
   verifyUrl: string;
+  /** CID reference ("cid:logo@unza.ac.zm") or an https URL */
+  logoSrc?: string;
 }) {
+  const logoImg = logoSrc
+    ? `<img src="${logoSrc}" alt="UNZA TeLS" style="display:block;margin:0 auto 16px;max-width:120px;max-height:100px;width:auto;height:auto">`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -50,8 +76,9 @@ export function certificateEmailHtml({
         <!-- Header -->
         <tr>
           <td style="background:#1a5c2e;padding:28px 40px;text-align:center">
+            ${logoImg}
             <p style="margin:0;color:#c9a44c;font-size:13px;letter-spacing:2px;text-transform:uppercase">University of Zambia</p>
-            <h1 style="margin:6px 0 0;color:#ffffff;font-size:22px;font-weight:700">Technology e-Learning Services</h1>
+            <h1 style="margin:6px 0 0;color:#ffffff;font-size:22px;font-weight:700">Technology and E-Learning Support Unit (TeLS)</h1>
           </td>
         </tr>
         <!-- Body -->
@@ -103,7 +130,7 @@ export function certificateEmailHtml({
         <tr>
           <td style="background:#f8f8f8;border-top:1px solid #eee;padding:20px 40px;text-align:center">
             <p style="margin:0;font-size:12px;color:#999">
-              University of Zambia · Technology e-Learning Services<br>
+              University of Zambia · Technology and E-Learning Support Unit (TeLS)<br>
               This is an automated message — please do not reply directly to this email.
             </p>
           </td>

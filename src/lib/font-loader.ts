@@ -92,9 +92,32 @@ export async function registerCustomFontsInDoc(doc: jsPDF, families: string[]): 
     needed.map(async (spec) => {
       const base64 = await fetchFontBase64(spec);
       if (!base64) return;
+
+      // WOFF/WOFF2 magic bytes start with 'wOF' → base64 'dO9G'.
+      // jsPDF only handles raw TTF; registering WOFF2 leaves font.metadata undefined
+      // and causes doc.output() to throw "Cannot read properties of undefined (reading 'Unicode')".
+      if (base64.startsWith("d09G") || base64.startsWith("dO9G")) {
+        console.warn(`[font-loader] ${spec.jsPdfName} ${spec.jsPdfStyle}: Google returned WOFF format — falling back to helvetica`);
+        return;
+      }
+
       const filename = `${spec.jsPdfName}-${spec.jsPdfStyle}.ttf`;
-      doc.addFileToVFS(filename, base64);
-      doc.addFont(filename, spec.jsPdfName, spec.jsPdfStyle);
+      try {
+        doc.addFileToVFS(filename, base64);
+        doc.addFont(filename, spec.jsPdfName, spec.jsPdfStyle);
+      } catch (err) {
+        console.warn(`[font-loader] Failed to register ${spec.jsPdfName} ${spec.jsPdfStyle}:`, err);
+        // Remove the partially-registered font so doc.output() doesn't trip over it
+        try {
+          const internal = (doc as any).internal;
+          const fontMap: Record<string, unknown> = internal?.fonts ?? internal?.Font?.fontList ?? {};
+          for (const key of Object.keys(fontMap)) {
+            if (key.toLowerCase().startsWith(spec.jsPdfName.toLowerCase())) {
+              delete fontMap[key];
+            }
+          }
+        } catch { /* cleanup is best-effort */ }
+      }
     }),
   );
 }

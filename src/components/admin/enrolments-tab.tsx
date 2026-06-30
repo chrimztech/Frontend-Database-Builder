@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Award, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Award, Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -41,6 +55,7 @@ import {
   AdminPanelHeader,
   AdminStat,
 } from "@/components/admin/admin-ui";
+import { cn } from "@/lib/utils";
 
 type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
 type PaymentStatus = "pending" | "paid" | "waived" | "free";
@@ -98,10 +113,7 @@ const STATUS_BADGE: Record<EnrolmentStatus, string> = {
 };
 
 function fmtZmw(value: number | null) {
-  if (value == null) {
-    return "-";
-  }
-
+  if (value == null) return "-";
   return `K${Number(value).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -111,6 +123,8 @@ function fmtZmw(value: number | null) {
 export function EnrolmentsTab() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"all" | EnrolmentStatus>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const enrolments = useQuery({
     queryKey: ["admin-enrolments"],
@@ -118,18 +132,12 @@ export function EnrolmentsTab() {
       const { data, error } = await supabase
         .from("enrolments")
         .select(
-          `
-          id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
-          student:students ( id, full_name, email, national_id, category ),
-          course:courses ( id, name, prefix, fee_unza, fee_non_unza )
-        `,
+          `id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
+           student:students ( id, full_name, email, national_id, category ),
+           course:courses ( id, name, prefix, fee_unza, fee_non_unza )`,
         )
         .order("enrolled_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return (data ?? []) as unknown as Enrolment[];
     },
   });
@@ -138,17 +146,60 @@ export function EnrolmentsTab() {
     queryClient.invalidateQueries({ queryKey: ["admin-enrolments"] });
     queryClient.invalidateQueries({ queryKey: ["admin-certs"] });
     queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
+    setSelectedIds(new Set());
   };
 
   const list = enrolments.data ?? [];
   const filtered = tab === "all" ? list : list.filter((row) => row.status === tab);
   const counts = {
     all: list.length,
-    enrolled: list.filter((row) => row.status === "enrolled").length,
-    in_progress: list.filter((row) => row.status === "in_progress").length,
-    completed: list.filter((row) => row.status === "completed").length,
-    certified: list.filter((row) => row.status === "certified").length,
+    enrolled: list.filter((r) => r.status === "enrolled").length,
+    in_progress: list.filter((r) => r.status === "in_progress").length,
+    completed: list.filter((r) => r.status === "completed").length,
+    certified: list.filter((r) => r.status === "certified").length,
   };
+
+  // Only enrolled rows can be bulk-started
+  const selectableIds = filtered
+    .filter((r) => r.status === "enrolled")
+    .map((r) => r.id);
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkStart() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const { error } = await supabase
+        .from("enrolments")
+        .update({ status: "in_progress", started_at: new Date().toISOString() })
+        .in("id", [...selectedIds]);
+      if (error) throw error;
+      toast.success(`${selectedIds.size} enrolment(s) marked In progress`);
+      refresh();
+    } catch (err: any) {
+      toast.error(err.message ?? "Bulk update failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -166,7 +217,7 @@ export function EnrolmentsTab() {
         <AdminStat label="Certified" value={counts.certified} hint="Learners already issued a certificate" />
       </div>
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as "all" | EnrolmentStatus)}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as "all" | EnrolmentStatus); setSelectedIds(new Set()); }}>
         <TabsList>
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           <TabsTrigger value="enrolled">Enrolled ({counts.enrolled})</TabsTrigger>
@@ -182,6 +233,22 @@ export function EnrolmentsTab() {
               description="Track each learner from enrolment through certification, including fee handling and operational next steps."
             />
 
+            {/* Bulk action bar */}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-3 sm:px-6">
+                <span className="text-sm font-medium text-primary">
+                  {selectedIds.size} selected
+                </span>
+                <Button size="sm" disabled={bulkBusy} onClick={bulkStart}>
+                  <ArrowRight className="mr-1 h-3 w-3" />
+                  {bulkBusy ? "Updating..." : "Start course"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            )}
+
             <div className="px-5 py-5 sm:px-6">
               {enrolments.isLoading ? (
                 <div className="text-sm text-muted-foreground">Loading enrolments...</div>
@@ -194,6 +261,15 @@ export function EnrolmentsTab() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        {selectableIds.length > 0 && (
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={toggleSelectAll}
+                            aria-label="Select all enrolled"
+                          />
+                        )}
+                      </TableHead>
                       <TableHead>Student</TableHead>
                       <TableHead>Course</TableHead>
                       <TableHead>Enrolled</TableHead>
@@ -205,7 +281,13 @@ export function EnrolmentsTab() {
                   </TableHeader>
                   <TableBody>
                     {filtered.map((row) => (
-                      <EnrolRow key={row.id} enrolment={row} onChange={refresh} />
+                      <EnrolRow
+                        key={row.id}
+                        enrolment={row}
+                        onChange={refresh}
+                        selected={selectedIds.has(row.id)}
+                        onToggle={() => toggleOne(row.id)}
+                      />
                     ))}
                   </TableBody>
                 </Table>
@@ -221,9 +303,13 @@ export function EnrolmentsTab() {
 function EnrolRow({
   enrolment,
   onChange,
+  selected,
+  onToggle,
 }: {
   enrolment: Enrolment;
   onChange: () => void;
+  selected: boolean;
+  onToggle: () => void;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -231,22 +317,14 @@ function EnrolRow({
     setBusy(true);
     try {
       const patch: { status: EnrolmentStatus; started_at?: string; completed_at?: string } = { status };
-      if (status === "in_progress" && !enrolment.completed_at) {
-        patch.started_at = new Date().toISOString();
-      }
-      if (status === "completed") {
-        patch.completed_at = new Date().toISOString();
-      }
-
+      if (status === "in_progress" && !enrolment.completed_at) patch.started_at = new Date().toISOString();
+      if (status === "completed") patch.completed_at = new Date().toISOString();
       const { error } = await supabase.from("enrolments").update(patch).eq("id", enrolment.id);
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       toast.success(`Marked ${STATUS_LABEL[status]}`);
       onChange();
-    } catch (error: any) {
-      toast.error(error.message ?? "Failed");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed");
     } finally {
       setBusy(false);
     }
@@ -256,76 +334,56 @@ function EnrolRow({
     if (!enrolment.student || !enrolment.course) return;
     setBusy(true);
     try {
-      // Run DB cert creation, branding pre-warm, and font cache warm-up in parallel.
-      // By the time uploadCertificatePdf runs, loadBranding() and fonts hit cache instantly.
       const [cert] = await Promise.all([
         generateCertificateServer({ data: { enrolmentId: enrolment.id } }),
         import("@/lib/branding").then(({ loadBranding }) => loadBranding().catch(() => null)),
         import("@/lib/font-loader").then(({ preloadCustomFonts }) => preloadCustomFonts()),
       ]);
-
-      const issueDate = new Date().toISOString().slice(0, 10);
-
-      // Generate and upload PDF client-side — branding and fonts already cached above
       const { uploadCertificatePdf } = await import("@/lib/pdf");
       await uploadCertificatePdf({
         certificateId: cert.certificate_code,
         recipientName: enrolment.student.full_name,
         programme: enrolment.course.name,
-        issueDate,
+        issueDate: new Date().toISOString().slice(0, 10),
         nrcNumber: enrolment.student.national_id ?? undefined,
       });
-
-      // Mark enrolment as certified
       await supabase
         .from("enrolments")
-        .update({
-          status: "certified",
-          completed_at: enrolment.completed_at ?? new Date().toISOString(),
-        })
+        .update({ status: "certified", completed_at: enrolment.completed_at ?? new Date().toISOString() })
         .eq("id", enrolment.id);
-
       toast.success(`Certificate ${cert.certificate_code} generated`);
       onChange();
-    } catch (error: any) {
-      toast.error(error.message ?? "Failed to generate");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to generate");
     } finally {
       setBusy(false);
     }
   }
 
   async function remove() {
-    if (!window.confirm("Remove this enrolment?")) {
-      return;
-    }
-
+    if (!window.confirm("Remove this enrolment?")) return;
     const { error } = await supabase.from("enrolments").delete().eq("id", enrolment.id);
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Enrolment removed");
-      onChange();
-    }
+    if (error) toast.error(error.message);
+    else { toast.success("Enrolment removed"); onChange(); }
   }
 
   async function cyclePayment() {
     const order: PaymentStatus[] = ["pending", "paid", "waived", "free"];
     const next = order[(order.indexOf(enrolment.payment_status) + 1) % order.length];
-    const { error } = await supabase
-      .from("enrolments")
-      .update({ payment_status: next })
-      .eq("id", enrolment.id);
-
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success(`Payment: ${PAY_LABEL[next]}`);
-      onChange();
-    }
+    const { error } = await supabase.from("enrolments").update({ payment_status: next }).eq("id", enrolment.id);
+    if (error) toast.error(error.message);
+    else { toast.success(`Payment: ${PAY_LABEL[next]}`); onChange(); }
   }
 
+  const canSelect = enrolment.status === "enrolled";
+
   return (
-    <TableRow>
+    <TableRow className={selected ? "bg-primary/5" : undefined}>
+      <TableCell>
+        {canSelect && (
+          <Checkbox checked={selected} onCheckedChange={onToggle} aria-label="Select row" />
+        )}
+      </TableCell>
       <TableCell>
         <div className="flex items-center gap-2 font-medium">
           {enrolment.student?.full_name ?? "-"}
@@ -335,9 +393,7 @@ function EnrolRow({
             <Badge variant="outline">Non-UNZA</Badge>
           )}
         </div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          {enrolment.student?.email ?? ""}
-        </div>
+        <div className="mt-1 text-sm text-muted-foreground">{enrolment.student?.email ?? ""}</div>
       </TableCell>
       <TableCell>{enrolment.course?.name ?? "-"}</TableCell>
       <TableCell className="text-muted-foreground">
@@ -345,14 +401,8 @@ function EnrolRow({
       </TableCell>
       <TableCell className="font-mono text-xs">{fmtZmw(enrolment.fee_charged)}</TableCell>
       <TableCell>
-        <button
-          onClick={cyclePayment}
-          disabled={busy}
-          title="Click to cycle payment status"
-        >
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${PAY_TONE[enrolment.payment_status]}`}
-          >
+        <button onClick={cyclePayment} disabled={busy} title="Click to cycle payment status">
+          <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${PAY_TONE[enrolment.payment_status]}`}>
             {PAY_LABEL[enrolment.payment_status]}
           </span>
         </button>
@@ -364,20 +414,17 @@ function EnrolRow({
         <div className="flex flex-wrap justify-end gap-2">
           {enrolment.status === "enrolled" && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("in_progress")}>
-              Start
-              <ArrowRight className="ml-1 h-3 w-3" />
+              Start <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           )}
           {enrolment.status === "in_progress" && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("completed")}>
-              Mark completed
-              <ArrowRight className="ml-1 h-3 w-3" />
+              Mark completed <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           )}
           {enrolment.status === "completed" && !enrolment.certificate_id && (
             <Button size="sm" disabled={busy} onClick={generateCertificate}>
-              <Award className="mr-1 h-4 w-4" />
-              Generate certificate
+              <Award className="mr-1 h-4 w-4" /> Generate certificate
             </Button>
           )}
           <Button size="sm" variant="outline" onClick={remove} disabled={busy}>
@@ -386,6 +433,87 @@ function EnrolRow({
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+// Searchable combobox for student selection
+function StudentCombobox({
+  students,
+  value,
+  onChange,
+}: {
+  students: { id: string; full_name: string; category: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filtered = students.filter((s) =>
+    s.full_name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const selected = students.find((s) => s.id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          {selected ? (
+            <span>
+              {selected.full_name}{" "}
+              <span className="text-muted-foreground text-xs">
+                — {selected.category === "unza" ? "UNZA" : "Non-UNZA"}
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Search for a student...</span>
+          )}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Type a name to search..."
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            {filtered.length === 0 ? (
+              <CommandEmpty>No student found.</CommandEmpty>
+            ) : (
+              <CommandGroup>
+                {filtered.map((s) => (
+                  <CommandItem
+                    key={s.id}
+                    value={s.id}
+                    onSelect={() => {
+                      onChange(s.id);
+                      setSearch("");
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn("mr-2 h-4 w-4", value === s.id ? "opacity-100" : "opacity-0")}
+                    />
+                    {s.full_name}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {s.category === "unza" ? "UNZA" : "Non-UNZA"}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -405,10 +533,7 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
         .from("students")
         .select("id, full_name, category")
         .order("full_name");
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return data;
     },
   });
@@ -422,16 +547,13 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
         .select("id, name, fee_unza, fee_non_unza, category")
         .eq("active", true)
         .order("name");
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return data;
     },
   });
 
-  const selectedStudent = (students.data ?? []).find((student: any) => student.id === studentId);
-  const selectedCourse = (courses.data ?? []).find((course: any) => course.id === courseId);
+  const selectedStudent = (students.data ?? []).find((s: any) => s.id === studentId);
+  const selectedCourse = (courses.data ?? []).find((c: any) => c.id === courseId);
   const suggestedFee: number | null =
     selectedStudent && selectedCourse
       ? selectedStudent.category === "unza"
@@ -443,28 +565,18 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!studentId || !courseId) {
-      return toast.error("Pick a student and a course");
-    }
-
+    if (!studentId || !courseId) return toast.error("Pick a student and a course");
     setBusy(true);
     try {
-      const feeCharged =
-        finalFee == null || Number.isNaN(finalFee) ? null : finalFee;
-      const autoPaymentStatus: PaymentStatus =
-        feeCharged === 0 ? "free" : paymentStatus;
-
+      const feeCharged = finalFee == null || Number.isNaN(finalFee) ? null : finalFee;
+      const autoPaymentStatus: PaymentStatus = feeCharged === 0 ? "free" : paymentStatus;
       const { error } = await supabase.from("enrolments").insert({
         student_id: studentId,
         course_id: courseId,
         fee_charged: feeCharged,
         payment_status: autoPaymentStatus,
       });
-
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       toast.success("Enrolment created");
       setStudent("");
       setCourse("");
@@ -472,8 +584,8 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
       setPaymentStatus("pending");
       onSaved();
       setOpen(false);
-    } catch (error: any) {
-      toast.error(error.message ?? "Failed");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed");
     } finally {
       setBusy(false);
     }
@@ -491,26 +603,18 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
         <DialogHeader>
           <DialogTitle>Enrol a student</DialogTitle>
           <DialogDescription>
-            Fee is suggested automatically from the student category and course fee
-            schedule.
+            Fee is suggested automatically from the student category and course fee schedule.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-2">
             <Label className="text-sm font-semibold">Student</Label>
-            <Select value={studentId} onValueChange={setStudent}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a student" />
-              </SelectTrigger>
-              <SelectContent>
-                {(students.data ?? []).map((student: any) => (
-                  <SelectItem key={student.id} value={student.id}>
-                    {student.full_name} {student.category === "unza" ? "- UNZA" : "- Non-UNZA"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <StudentCombobox
+              students={students.data ?? []}
+              value={studentId}
+              onChange={setStudent}
+            />
           </div>
 
           <div className="space-y-2">
@@ -532,21 +636,14 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
           {selectedStudent && selectedCourse && (
             <div className="rounded-[1.35rem] border border-border/70 bg-white/72 p-4 text-sm shadow-[var(--shadow-soft)]">
               Suggested fee for{" "}
-              <strong>
-                {selectedStudent.category === "unza" ? "UNZA" : "Non-UNZA"}
-              </strong>{" "}
-              student:{" "}
-              <strong>
-                {suggestedFee != null ? `K${suggestedFee.toLocaleString()}` : "-"}
-              </strong>
+              <strong>{selectedStudent.category === "unza" ? "UNZA" : "Non-UNZA"}</strong> student:{" "}
+              <strong>{suggestedFee != null ? `K${suggestedFee.toLocaleString()}` : "-"}</strong>
             </div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="fee" className="text-sm font-semibold">
-                Fee charged (ZMW)
-              </Label>
+              <Label htmlFor="fee" className="text-sm font-semibold">Fee charged (ZMW)</Label>
               <Input
                 id="fee"
                 type="number"
@@ -554,18 +651,13 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
                 step="0.01"
                 placeholder={suggestedFee != null ? String(suggestedFee) : "0.00"}
                 value={overrideFee}
-                onChange={(event) => setOverrideFee(event.target.value)}
+                onChange={(e) => setOverrideFee(e.target.value)}
               />
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Payment status</Label>
-              <Select
-                value={paymentStatus}
-                onValueChange={(value) => setPaymentStatus(value as PaymentStatus)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={paymentStatus} onValueChange={(v) => setPaymentStatus(v as PaymentStatus)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="paid">Paid</SelectItem>
@@ -577,12 +669,8 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? "Creating..." : "Enrol student"}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Enrol student"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -1,10 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import path from "node:path";
+import fs from "node:fs";
 import { createCertificateWithCode } from "../certificate";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { signPayload, verifySignature } from "../certificate-signing";
 import { sendEmail, certificateEmailHtml } from "../email.server";
 import { getPresignedUploadUrl, downloadFromR2, getPublicOrPresignedUrl } from "@/lib/r2.server";
+
+function readLogoBuffer(): Buffer | null {
+  try {
+    return fs.readFileSync(path.resolve(process.cwd(), "public/logo.png"));
+  } catch {
+    return null;
+  }
+}
 
 export const generateCertificate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ enrolmentId: z.string().uuid() }))
@@ -150,6 +160,11 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
     const programme = (cert as any).programme ?? "your programme";
 
     try {
+      const logoBuffer = readLogoBuffer();
+      const logoAttachment = logoBuffer
+        ? [{ filename: "logo.png", content: logoBuffer, contentType: "image/png", cid: "logo@unza.ac.zm" }]
+        : [];
+
       await sendEmail({
         to: toEmail,
         subject: `Your Certificate — ${programme}`,
@@ -159,9 +174,11 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
           certificateCode: code,
           pdfUrl,
           verifyUrl,
+          logoSrc: logoBuffer ? "cid:logo@unza.ac.zm" : undefined,
         }),
         text: `Dear ${recipientName},\n\nCongratulations! Your certificate for ${programme} has been issued.\n\nCertificate code: ${code}\nDownload: ${pdfUrl}\nVerify: ${verifyUrl}\n\nQuestions? Email train@unza.ac.zm or call +260 775 606 059.\n\nUNZA Technology e-Learning Services`,
         attachments: [
+          ...logoAttachment,
           {
             filename: `Certificate-${pdfName}.pdf`,
             content: pdfBuffer,

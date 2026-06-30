@@ -8,6 +8,16 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 0. CLEAN SLATE  (safe on a fresh project — all DROP ... IF EXISTS)
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Storage policies
+DROP POLICY IF EXISTS "Authenticated users can read branding"  ON storage.objects;
+DROP POLICY IF EXISTS "Admins can upload branding"             ON storage.objects;
+DROP POLICY IF EXISTS "Admins can update branding"             ON storage.objects;
+DROP POLICY IF EXISTS "Admins can delete branding"             ON storage.objects;
+DROP POLICY IF EXISTS "Public can read certificates"           ON storage.objects;
+DROP POLICY IF EXISTS "Admins can upload certificates"         ON storage.objects;
+DROP POLICY IF EXISTS "Admins can update certificate files"    ON storage.objects;
+DROP POLICY IF EXISTS "Admins can delete certificate files"    ON storage.objects;
+
 DROP TRIGGER  IF EXISTS on_auth_user_created_bootstrap_admin ON auth.users;
 DROP TRIGGER  IF EXISTS sync_certificate_public_code_before_write ON public.certificates;
 DROP TRIGGER  IF EXISTS student_access_log_actor_email ON public.student_access_log;
