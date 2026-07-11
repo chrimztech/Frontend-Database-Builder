@@ -6,9 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
-import { sendCertificateEmail, updateCertificatesStatus } from '@/lib/api/certificates.functions';
+import { updateCertificatesStatus } from '@/lib/api/certificates.functions';
+import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from '@/lib/certificate-delivery';
 
 type EmailStatus = 'not_sent' | 'queued' | 'sent' | 'failed';
+type QueueCertificate = {
+  id: string;
+  certificate_id: string;
+  certificate_code: string | null;
+  email_status: EmailStatus | null;
+  recipient_name: string | null;
+  recipient_email: string | null;
+  programme: string | null;
+  issue_date: string;
+  issuer_name: string | null;
+  national_id: string | null;
+  created_at: string | null;
+};
 
 const STATUS_BADGE: Record<EmailStatus, string> = {
   not_sent:  'bg-muted text-muted-foreground',
@@ -30,10 +44,10 @@ export function CertificateQueueTab() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('certificates')
-        .select('id, certificate_id, certificate_code, email_status, recipient_name, recipient_email, programme, created_at')
+        .select('id, certificate_id, certificate_code, email_status, recipient_name, recipient_email, programme, issue_date, issuer_name, national_id, created_at')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as any[];
+      return data as QueueCertificate[];
     },
   });
 
@@ -45,35 +59,56 @@ export function CertificateQueueTab() {
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }));
   const selectedIds = Object.keys(selected).filter((k) => selected[k]);
 
-  async function sendOne(certificateId: string) {
-    setSending((s) => ({ ...s, [certificateId]: true }));
+  async function sendOne(cert: QueueCertificate) {
+    setSending((s) => ({ ...s, [cert.id]: true }));
     try {
-      const result = await sendCertificateEmail({ data: { certificateId } });
+      const result = await sendCertificateEmailWithRepair({
+        id: cert.id,
+        certificate_id: cert.certificate_id,
+        certificate_code: cert.certificate_code,
+        recipient_name: cert.recipient_name ?? 'Student',
+        recipient_email: cert.recipient_email,
+        programme: cert.programme ?? 'your programme',
+        issue_date: cert.issue_date,
+        issuer_name: cert.issuer_name,
+        national_id: cert.national_id,
+      });
       toast.success(`Certificate sent to ${(result as any).sentTo}`);
       refresh();
     } catch (e: any) {
-      toast.error(e.message ?? 'Failed to send');
+      toast.error(certificateSendErrorMessage(e) ?? 'Failed to send');
       // Mark as failed in DB
-      await updateCertificatesStatus({ data: { certificateIds: [certificateId], status: 'failed' } });
+      await updateCertificatesStatus({ data: { certificateIds: [cert.id], status: 'failed' } });
       refresh();
     } finally {
-      setSending((s) => ({ ...s, [certificateId]: false }));
+      setSending((s) => ({ ...s, [cert.id]: false }));
     }
   }
 
   async function sendSelected() {
     if (!selectedIds.length) return toast.error('No certificates selected');
     let ok = 0; let fail = 0;
-    for (const id of selectedIds) {
-      setSending((s) => ({ ...s, [id]: true }));
+    const selectedCerts = (q.data ?? []).filter((c) => selectedIds.includes(c.id));
+    for (const cert of selectedCerts) {
+      setSending((s) => ({ ...s, [cert.id]: true }));
       try {
-        await sendCertificateEmail({ data: { certificateId: id } });
+        await sendCertificateEmailWithRepair({
+          id: cert.id,
+          certificate_id: cert.certificate_id,
+          certificate_code: cert.certificate_code,
+          recipient_name: cert.recipient_name ?? 'Student',
+          recipient_email: cert.recipient_email,
+          programme: cert.programme ?? 'your programme',
+          issue_date: cert.issue_date,
+          issuer_name: cert.issuer_name,
+          national_id: cert.national_id,
+        });
         ok++;
       } catch (e: any) {
         fail++;
-        await updateCertificatesStatus({ data: { certificateIds: [id], status: 'failed' } }).catch(() => {});
+        await updateCertificatesStatus({ data: { certificateIds: [cert.id], status: 'failed' } }).catch(() => {});
       } finally {
-        setSending((s) => ({ ...s, [id]: false }));
+        setSending((s) => ({ ...s, [cert.id]: false }));
       }
     }
     setSelected({});
@@ -168,7 +203,7 @@ export function CertificateQueueTab() {
                           size="sm"
                           variant="outline"
                           disabled={isBusy || !c.recipient_email}
-                          onClick={() => sendOne(c.id)}
+                          onClick={() => sendOne(c)}
                           title={!c.recipient_email ? 'No email address on record' : 'Send certificate email'}
                         >
                           {isBusy ? (
@@ -197,4 +232,3 @@ export function CertificateQueueTab() {
     </div>
   );
 }
-

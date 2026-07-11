@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { verificationUrl } from "@/lib/cert";
+import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from "@/lib/certificate-delivery";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -209,12 +210,11 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
     setEmailBusy(true);
     try {
-      const { sendCertificateEmail } = await import("@/lib/api/certificates.functions");
-      await sendCertificateEmail({ data: { certificateId: cert.id } });
+      await sendCertificateEmailWithRepair(cert);
       toast.success(`Certificate emailed to ${cert.recipient_email}`);
       onChange();
     } catch (error: any) {
-      const msg = error?.message ?? error?.data?.message ?? String(error) ?? "Failed to send email";
+      const msg = certificateSendErrorMessage(error) ?? "Failed to send email";
       toast.error(msg);
       console.error("[email] send failed:", error);
     } finally {
@@ -280,7 +280,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
       const { deleteR2Files } = await import("@/lib/api/r2.functions");
       await deleteR2Files({
         data: {
-          keys: [`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`],
+          keys: [`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`, `${cert.id}.pdf`],
         },
       }).catch(() => {});
 

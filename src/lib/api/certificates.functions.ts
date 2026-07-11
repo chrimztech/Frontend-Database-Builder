@@ -8,12 +8,79 @@ import { signPayload, verifySignature } from "../certificate-signing";
 import { sendEmail, certificateEmailHtml } from "../email.server";
 import { getPresignedUploadUrl, downloadFromR2, getPublicOrPresignedUrl } from "@/lib/r2.server";
 
+const CERTIFICATES_BUCKET = "certificates";
+
 function readLogoBuffer(): Buffer | null {
   try {
     return fs.readFileSync(path.resolve(process.cwd(), "public/logo.png"));
   } catch {
     return null;
   }
+}
+
+function certificatePdfKeys(cert: {
+  id: string;
+  certificate_id?: string | null;
+  certificate_code?: string | null;
+}) {
+  return [...new Set([cert.certificate_code, cert.certificate_id, cert.id].filter(Boolean))]
+    .map((value) => `${value}.pdf`);
+}
+
+async function downloadFromSupabaseStorage(key: string): Promise<Buffer> {
+  const { data, error } = await supabaseAdmin.storage.from(CERTIFICATES_BUCKET).download(key);
+  if (error) throw error;
+  if (!data) throw new Error(`Supabase Storage: empty response for ${key}`);
+  return Buffer.from(await data.arrayBuffer());
+}
+
+async function getSupabaseCertificateUrl(key: string): Promise<string> {
+  const storage = supabaseAdmin.storage.from(CERTIFICATES_BUCKET);
+  const { data, error } = await storage.createSignedUrl(key, 604_800);
+  if (data?.signedUrl) return data.signedUrl;
+
+  const { data: publicData } = storage.getPublicUrl(key);
+  if (publicData?.publicUrl) return publicData.publicUrl;
+
+  throw error ?? new Error(`Supabase Storage: could not create a URL for ${key}`);
+}
+
+async function resolveCertificatePdf(cert: {
+  id: string;
+  certificate_id?: string | null;
+  certificate_code?: string | null;
+}) {
+  const candidateKeys = certificatePdfKeys(cert);
+  if (!candidateKeys.length) {
+    throw new Error("Certificate has no ID or code — cannot locate PDF.");
+  }
+
+  const failures: string[] = [];
+
+  for (const key of candidateKeys) {
+    try {
+      const buffer = await downloadFromR2(key);
+      const url = await getPublicOrPresignedUrl(key);
+      return { buffer, key, url, source: "r2" as const };
+    } catch (err: any) {
+      failures.push(`R2 ${key}: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  for (const key of candidateKeys) {
+    try {
+      const buffer = await downloadFromSupabaseStorage(key);
+      const url = await getSupabaseCertificateUrl(key);
+      return { buffer, key, url, source: "supabase" as const };
+    } catch (err: any) {
+      failures.push(`Supabase ${key}: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  console.warn("[certificates] PDF lookup failed in all stores", { candidateKeys, failures });
+  throw new Error(
+    `Could not retrieve PDF from storage. Tried ${candidateKeys.join(", ")}.`,
+  );
 }
 
 export const generateCertificate = createServerFn({ method: "POST" })
@@ -139,19 +206,19 @@ export const sendCertificateEmail = createServerFn({ method: "POST" })
         "This certificate has no recipient email address — update the student record first.",
       );
 
-    // Resolve the PDF key. New flow uses certificate_code; legacy fallback to certificate_id.
-    const pdfName = (cert as any).certificate_code ?? (cert as any).certificate_id;
-    if (!pdfName) throw new Error("Certificate has no ID or code — cannot locate PDF.");
-
-    const pdfKey = `${pdfName}.pdf`;
-
-    // Download the PDF from R2
-    const pdfBuffer = await downloadFromR2(pdfKey).catch((err) => {
+    // Newer PDFs live in R2 under certificate_code.pdf, but older records may still
+    // use certificate_id.pdf, the row UUID, or still live in Supabase Storage.
+    const pdf = await resolveCertificatePdf(cert as {
+      id: string;
+      certificate_id?: string | null;
+      certificate_code?: string | null;
+    }).catch((err) => {
       throw new Error(`Could not retrieve PDF from storage: ${err.message}`);
     });
 
-    // Generate a shareable URL for the PDF (public URL or presigned 7-day link)
-    const pdfUrl = await getPublicOrPresignedUrl(pdfKey);
+    const pdfName = pdf.key.replace(/\.pdf$/i, "");
+    const pdfBuffer = pdf.buffer;
+    const pdfUrl = pdf.url;
     const appUrl = process.env.APP_URL ?? "https://tels.unza.ac.zm";
     const code = (cert as any).certificate_code ?? (cert as any).certificate_id ?? "";
     const verifyUrl = `${appUrl}/verify/${encodeURIComponent(code)}`;
