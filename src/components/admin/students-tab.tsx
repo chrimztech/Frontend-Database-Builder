@@ -65,10 +65,8 @@ type Student = {
   notes: string | null;
   created_at: string;
 };
-
 type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
 type PaymentStatus = "pending" | "paid" | "waived" | "free";
-
 type StudentEnrolment = {
   id: string;
   status: EnrolmentStatus;
@@ -113,25 +111,11 @@ async function logAccess(
   studentId: string | null,
   detail?: string,
 ) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return;
-  }
-
-  await supabase
-    .from("student_access_log")
-    .insert({
-      student_id: studentId,
-      actor_id: user.id,
-      action,
-      detail: detail ?? null,
-    })
-    .then(
-      () => {},
-      () => {},
-    );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.from("student_access_log").insert({
+    student_id: studentId, actor_id: user.id, action, detail: detail ?? null,
+  }).then(() => {}, () => {});
 }
 
 export function StudentsTab() {
@@ -146,25 +130,15 @@ export function StudentsTab() {
         .from("students")
         .select("*")
         .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return data as Student[];
     },
   });
 
   const fullList = students.data ?? [];
   const filtered = fullList.filter((student) => {
-    if (category !== "all" && student.category !== category) {
-      return false;
-    }
-
-    if (!search.trim()) {
-      return true;
-    }
-
+    if (category !== "all" && student.category !== category) return false;
+    if (!search.trim()) return true;
     const query = search.toLowerCase();
     return (
       student.full_name.toLowerCase().includes(query) ||
@@ -176,8 +150,8 @@ export function StudentsTab() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-students"] });
   const counts = {
-    total: fullList.length,
-    unza: fullList.filter((student) => student.category === "unza").length,
+    total:   fullList.length,
+    unza:    fullList.filter((student) => student.category === "unza").length,
     nonUnza: fullList.filter((student) => student.category === "non_unza").length,
   };
 
@@ -279,13 +253,7 @@ export function StudentsTab() {
   );
 }
 
-function StudentRow({
-  student,
-  onChange,
-}: {
-  student: Student;
-  onChange: () => void;
-}) {
+function StudentRow({ student, onChange }: { student: Student; onChange: () => void }) {
   const [expanded, setExpanded] = useState(false);
 
   const enrolments = useQuery({
@@ -295,46 +263,23 @@ function StudentRow({
       await logAccess("view", student.id, "view courses");
       const { data, error } = await supabase
         .from("enrolments")
-        .select(
-          `
-          id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
-          course:courses ( id, name, prefix )
-        `,
-        )
+        .select("id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status, course:courses ( id, name, prefix )")
         .eq("student_id", student.id)
         .order("enrolled_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return (data ?? []) as unknown as StudentEnrolment[];
     },
   });
 
   async function remove() {
-    if (
-      !window.confirm(
-        `Delete ${student.full_name}? Their enrolments will also be removed.`,
-      )
-    ) {
-      return;
-    }
-
+    if (!window.confirm(`Delete ${student.full_name}? Their enrolments will also be removed.`)) return;
     await logAccess("delete", student.id, student.full_name);
     const { error } = await supabase.from("students").delete().eq("id", student.id);
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Student deleted");
-      onChange();
-    }
+    if (error) toast.error(error.message);
+    else { toast.success("Student deleted"); onChange(); }
   }
 
-  const idDisplay =
-    student.category === "unza"
-      ? student.unza_student_id ?? "-"
-      : student.national_id ?? "-";
+  const idDisplay = student.category === "unza" ? student.unza_student_id ?? "-" : student.national_id ?? "-";
   const enrolmentCount = enrolments.data?.length;
 
   return (
@@ -344,11 +289,9 @@ function StudentRow({
         onClick={() => setExpanded((current) => !current)}
       >
         <TableCell className="pr-0">
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
+          {expanded
+            ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
         </TableCell>
         <TableCell>
           <div className="font-medium">{student.full_name}</div>
@@ -361,11 +304,9 @@ function StudentRow({
           ) : null}
         </TableCell>
         <TableCell>
-          {student.category === "unza" ? (
-            <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
-          ) : (
-            <Badge variant="outline">Non-UNZA</Badge>
-          )}
+          {student.category === "unza"
+            ? <Badge className="bg-accent text-accent-foreground">UNZA</Badge>
+            : <Badge variant="outline">Non-UNZA</Badge>}
         </TableCell>
         <TableCell className="text-muted-foreground">{student.email ?? "-"}</TableCell>
         <TableCell className="text-muted-foreground">{student.phone ?? "-"}</TableCell>
@@ -375,11 +316,7 @@ function StudentRow({
             <StudentDialog
               onSaved={onChange}
               student={student}
-              trigger={
-                <Button size="sm" variant="outline">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              }
+              trigger={<Button size="sm" variant="outline"><Pencil className="h-4 w-4" /></Button>}
             />
             <Button size="sm" variant="outline" onClick={remove}>
               <Trash2 className="h-4 w-4 text-destructive" />
@@ -415,13 +352,9 @@ function StudentRow({
                     <tbody>
                       {enrolments.data.map((enrolment) => (
                         <tr key={enrolment.id} className="border-b border-border/60 last:border-0">
-                          <td className="py-3 pr-4 font-medium">
-                            {enrolment.course?.name ?? "-"}
-                          </td>
+                          <td className="py-3 pr-4 font-medium">{enrolment.course?.name ?? "-"}</td>
                           <td className="py-3 pr-4">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${STATUS_BADGE[enrolment.status]}`}
-                            >
+                            <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${STATUS_BADGE[enrolment.status]}`}>
                               {STATUS_LABEL[enrolment.status]}
                             </span>
                           </td>
@@ -430,24 +363,18 @@ function StudentRow({
                           </td>
                           <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">
                             {enrolment.fee_charged != null
-                              ? `K${Number(enrolment.fee_charged).toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                })}`
+                              ? `K${Number(enrolment.fee_charged).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                               : "-"}
                           </td>
                           <td className="py-3 pr-4">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${PAY_TONE[enrolment.payment_status]}`}
-                            >
+                            <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.12em] ${PAY_TONE[enrolment.payment_status]}`}>
                               {PAY_LABEL[enrolment.payment_status]}
                             </span>
                           </td>
                           <td className="py-3">
-                            {enrolment.status === "certified" &&
-                            enrolment.certificate_id ? (
+                            {enrolment.status === "certified" && enrolment.certificate_id ? (
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                                <Award className="h-3.5 w-3.5" />
-                                Issued
+                                <Award className="h-3.5 w-3.5" /> Issued
                               </span>
                             ) : (
                               <span className="text-sm text-muted-foreground">-</span>

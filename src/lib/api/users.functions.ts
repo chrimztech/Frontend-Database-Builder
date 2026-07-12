@@ -1,26 +1,50 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { getRequest } from "@tanstack/react-start/server";
 
-export const listUsers = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-    if (error) throw error;
+const API_URL =
+  (typeof process !== 'undefined' ? process.env?.VITE_API_URL : undefined) ??
+  'http://localhost:8080/api';
 
-    const { data: roles } = await supabaseAdmin
-      .from("user_roles")
-      .select("user_id, role");
+function getAuthHeader(): string | null {
+  try {
+    const req = getRequest();
+    return (req?.headers as any)?.get?.('authorization') ?? null;
+  } catch {
+    return null;
+  }
+}
 
-    return data.users.map((u) => ({
-      id: u.id,
-      email: u.email ?? "",
-      full_name: (u.user_metadata?.full_name as string | undefined) ?? null,
-      phone: (u.user_metadata?.phone as string | undefined) ?? null,
-      created_at: u.created_at,
-      last_sign_in_at: u.last_sign_in_at ?? null,
-      role: (roles ?? []).find((r) => r.user_id === u.id)?.role ?? null,
-    }));
+async function backendFetch(path: string, opts: RequestInit = {}): Promise<any> {
+  const authHeader = getAuthHeader();
+  const res = await fetch(`${API_URL}${path}`, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authHeader ? { Authorization: authHeader } : {}),
+      ...((opts.headers as Record<string, string>) ?? {}),
+    },
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Backend error ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+export const listUsers = createServerFn({ method: "GET" }).handler(async () => {
+  const users: any[] = await backendFetch('/users');
+  return users.map((u) => ({
+    id: u.id,
+    email: u.email ?? '',
+    full_name: u.full_name ?? u.fullName ?? null,
+    phone: u.phone ?? null,
+    created_at: u.created_at ?? u.createdAt ?? null,
+    last_sign_in_at: null,
+    role: u.role ?? null,
+    active: u.active ?? true,
+  }));
+});
 
 export const createUser = createServerFn({ method: "POST" })
   .inputValidator(
@@ -33,45 +57,27 @@ export const createUser = createServerFn({ method: "POST" })
     })
   )
   .handler(async ({ data }) => {
-    const { email, password, role, full_name, phone } = data;
-
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name, phone: phone ?? null },
+    const { email, password, role, full_name } = data;
+    const user = await backendFetch('/users', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, fullName: full_name, role }),
     });
-    if (error) throw error;
-
-    const { error: roleErr } = await supabaseAdmin
-      .from("user_roles")
-      .insert({ user_id: created.user.id, role });
-    if (roleErr) throw roleErr;
-
-    // Flag account so the user is forced to change password on first sign-in
-    await (supabaseAdmin as any)
-      .from("user_settings")
-      .insert({ user_id: created.user.id, must_change_password: true });
-
-    return { id: created.user.id, email: created.user.email ?? email };
+    return { id: user.id, email: user.email ?? email };
   });
 
 export const deleteUser = createServerFn({ method: "POST" })
   .inputValidator(z.object({ userId: z.string().uuid() }))
   .handler(async ({ data }) => {
-    const { userId } = data;
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
-    if (error) throw error;
+    await backendFetch(`/users/${data.userId}`, { method: 'DELETE' });
     return { ok: true };
   });
 
 export const updateUserRole = createServerFn({ method: "POST" })
   .inputValidator(z.object({ userId: z.string().uuid(), role: z.enum(["admin", "user"]) }))
   .handler(async ({ data }) => {
-    const { userId, role } = data;
-    const { error } = await supabaseAdmin
-      .from("user_roles")
-      .upsert({ user_id: userId, role }, { onConflict: "user_id,role" });
-    if (error) throw error;
+    await backendFetch(`/users/${data.userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role: data.role }),
+    });
     return { ok: true };
   });

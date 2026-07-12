@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Stop-Process -Id 28336, 29768, 34424 -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(netstat -ano)",
+      "Bash(mvn spring-boot:run)",
+      "Bash(echo \"Started PID $!\")",
+      "Bash(curl -s http://localhost:8080/api/auth/me)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"wronguser@test.com\",\"password\":\"wrong\"}')",
+      "Bash(psql -U postgres -d cemis -c \"SELECT email, LEFT\\(password_hash, 30\\) as hash_prefix FROM users;\")",
+      "Bash(psql -U postgres -d cemis -t -c \"SELECT email, LEFT\\(password_hash, 30\\) FROM users;\")",
+      "Bash(echo \"EXIT:$?\")",
+      "PowerShell(& \"psql\" -U postgres -d cemis -t -c \"SELECT email, LEFT\\(password_hash, 30\\) FROM users;\" 2>&1)",
+      "Bash(curl -s -w '\\\\nHTTP: %{http_code}' -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@tels.unza.ac.zm\",\"password\":\"Admin@1234\"}')",
+      "PowerShell(& psql -U postgres -d cemis -t -c \"SELECT email, password_hash FROM users WHERE email = 'admin@tels.unza.ac.zm';\" 2>&1)",
+      "PowerShell(& psql -U postgres -d cemis -c \"SELECT email, active, LEFT\\(password_hash, 15\\) as hash, role FROM users;\" 2>&1)",
+      "Bash(psql -U postgres -d cemis -c \"SELECT email, active, LEFT\\(password_hash, 15\\) as hash, role FROM users;\")",
+      "PowerShell(node -e \"try { const b = require\\('bcrypt'\\); b.hash\\('Admin@1234', 12\\).then\\(h => console.log\\(h\\)\\); } catch\\(e\\) { try { const b = require\\('bcryptjs'\\); b.hash\\('Admin@1234', 12, \\(e,h\\) => console.log\\(h\\)\\); } catch\\(e2\\) { console.log\\('no bcrypt'\\); } }\" 2>&1)",
+      "Bash(curl -s -w '\\\\nHTTP: %{http_code}' -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@tels.unza.ac.zm\",\"password\":\"wrong\"}')",
+      "Bash(curl -s -w '\\\\nHTTP: %{http_code}' -X POST http://localhost:8080/api/students -H 'Content-Type: application/json' -H 'Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyNDdlNDQyNS1hNzI4LTRkNWYtYTA4NC03Nzc5Njg5ZDI2NjIiLCJlbWFpbCI6ImFkbWluQHRlbHMudW56YS5hYy56bSIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4MzgyODkzNCwiZXhwIjoxNzgzOTE1MzM0fQ.BxLpn0BR3kHqAhYJCR2fTt3VmT3X5ln1ovvj-ZYozFMQ4r1oISUtkER3nZVsC_8nPP1LHRlAydImLR_-Hb3Hig' -d '{\"fullName\":\"Test Student\",\"email\":\"test@example.com\",\"category\":\"non_unza\"}')",
+      "Bash(curl -s -w '\\\\nHTTP: %{http_code}' http://localhost:8080/api/students -H 'Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyNDdlNDQyNS1hNzI4LTRkNWYtYTA4NC03Nzc5Njg5ZDI2NjIiLCJlbWFpbCI6ImFkbWluQHRlbHMudW56YS5hYy56bSIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4MzgyODkzNCwiZXhwIjoxNzgzOTE1MzM0fQ.BxLpn0BR3kHqAhYJCR2fTt3VmT3X5ln1ovvj-ZYozFMQ4r1oISUtkER3nZVsC_8nPP1LHRlAydImLR_-Hb3Hig')",
+      "Bash(curl -s -w '\\\\nHTTP: %{http_code}' -X POST http://localhost:8080/api/students -H 'Content-Type: application/json' -H 'Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyNDdlNDQyNS1hNzI4LTRkNWYtYTA4NC03Nzc5Njg5ZDI2NjIiLCJlbWFpbCI6ImFkbWluQHRlbHMudW56YS5hYy56bSIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4MzgyODkzNCwiZXhwIjoxNzgzOTE1MzM0fQ.BxLpn0BR3kHqAhYJCR2fTt3VmT3X5ln1ovvj-ZYozFMQ4r1oISUtkER3nZVsC_8nPP1LHRlAydImLR_-Hb3Hig' -d '{\"full_name\":\"Jane Banda\",\"email\":\"jane@example.com\",\"category\":\"non_unza\"}')",
+      "Bash(curl -s http://localhost:8080/api/students -H 'Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyNDdlNDQyNS1hNzI4LTRkNWYtYTA4NC03Nzc5Njg5ZDI2NjIiLCJlbWFpbCI6ImFkbWluQHRlbHMudW56YS5hYy56bSIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4MzgyODkzNCwiZXhwIjoxNzgzOTE1MzM0fQ.BxLpn0BR3kHqAhYJCR2fTt3VmT3X5ln1ovvj-ZYozFMQ4r1oISUtkER3nZVsC_8nPP1LHRlAydImLR_-Hb3Hig')",
+      "PowerShell($end = \\(Get-Date\\).AddSeconds\\(45\\); do { Start-Sleep -Seconds 3; $log = Get-Content \"C:\\\\Users\\\\chris\\\\AppData\\\\Local\\\\Temp\\\\cemis-backend.log\" -ErrorAction SilentlyContinue -Tail 5; if \\($log -match \"Started|ERROR|error\"\\) { $log; break } } while \\(\\(Get-Date\\) -lt $end\\))",
+      "PowerShell($end = \\(Get-Date\\).AddSeconds\\(60\\); do { Start-Sleep -Seconds 4; $log = Get-Content \"C:\\\\Users\\\\chris\\\\AppData\\\\Local\\\\Temp\\\\cemis-backend.log\" -ErrorAction SilentlyContinue -Tail 8; if \\($log -match \"Started CemisApplication|APPLICATION FAILED\"\\) { $log; break } } while \\(\\(Get-Date\\) -lt $end\\); Write-Output \"done\")",
+      "PowerShell($end = \\(Get-Date\\).AddSeconds\\(60\\); do { Start-Sleep -Seconds 4; $log = Get-Content \"C:\\\\Users\\\\chris\\\\AppData\\\\Local\\\\Temp\\\\cemis-backend.log\" -ErrorAction SilentlyContinue -Tail 5; if \\($log -match \"Started CemisApplication|APPLICATION FAILED\"\\) { $log; break } } while \\(\\(Get-Date\\) -lt $end\\))",
+      "PowerShell($end = \\(Get-Date\\).AddSeconds\\(60\\); do { Start-Sleep -Seconds 4; $log = Get-Content \"C:\\\\Users\\\\chris\\\\AppData\\\\Local\\\\Temp\\\\cemis-backend.log\" -ErrorAction SilentlyContinue -Tail 3; if \\($log -match \"Started CemisApplication|APPLICATION FAILED\"\\) { $log; break } } while \\(\\(Get-Date\\) -lt $end\\))",
+      "PowerShell($src = \"f:\\\\Frontend Database Builder\\\\public\\\\logo.png\"; $dest = \"F:\\\\projects\\\\cemis-backend\\\\src\\\\main\\\\resources\\\\static\"; New-Item -ItemType Directory -Force $dest | Out-Null; Copy-Item $src \"$dest\\\\logo.png\" -Force; Write-Output \"Copied\")",
+      "PowerShell(cd \"f:\\\\Frontend Database Builder\"; npx tsc --noEmit 2>&1 | Select-String -Pattern \"verify\\\\.\\\\$certificateId\" | Select-Object -First 10)"
+    ]
+  }
+}

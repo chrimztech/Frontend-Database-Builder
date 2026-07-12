@@ -25,12 +25,7 @@ const securityNotes = [
   "Live access to the same registry used for public certificate verification.",
 ];
 
-let supabaseModulePromise: Promise<typeof import("@/integrations/supabase/client")> | null = null;
-
-function getSupabaseClient() {
-  supabaseModulePromise ??= import("@/integrations/supabase/client");
-  return supabaseModulePromise;
-}
+import { auth as cemisAuth } from "@/lib/api";
 
 export const Route = createLazyFileRoute("/auth")({
   component: AuthPage,
@@ -51,64 +46,25 @@ function AuthPage() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
-    let ignore = false;
-
-    void getSupabaseClient().then(async ({ supabase }) => {
-      const { data } = await supabase.auth.getSession();
-      if (ignore || !data.session) {
-        return;
+    // If a token is already in storage, verify it is still valid
+    import("@/lib/api").then(async ({ auth: a, getToken }) => {
+      if (!getToken()) return;
+      try {
+        const me = await a.me();
+        if (me.mustChangePassword) { setStage("must-change"); return; }
+        navigate({ to: "/admin", search: { section: "overview" }, replace: true });
+      } catch {
+        // Token expired or invalid — stay on login
       }
-
-      const mustChange = await checkMustChangePassword(data.session.user.id);
-      if (ignore) {
-        return;
-      }
-
-      if (mustChange) {
-        setStage("must-change");
-        return;
-      }
-
-      navigate({ to: "/admin", search: { section: "overview" }, replace: true });
     });
-
-    return () => {
-      ignore = true;
-    };
   }, [navigate]);
-
-  async function checkMustChangePassword(userId: string): Promise<boolean> {
-    const { supabase } = await getSupabaseClient();
-    const { data } = await (supabase as any)
-      .from("user_settings")
-      .select("must_change_password")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    return data?.must_change_password === true;
-  }
 
   async function handleSignIn(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
-
     try {
-      const { supabase } = await getSupabaseClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      const mustChange = await checkMustChangePassword(data.user.id);
-      if (mustChange) {
-        setStage("must-change");
-        return;
-      }
-
+      const result = await cemisAuth.login(email, password);
+      if (result.mustChangePassword) { setStage("must-change"); return; }
       navigate({ to: "/admin", search: { section: "overview" }, replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Sign-in failed");
@@ -119,46 +75,15 @@ function AuthPage() {
 
   async function handleChangePassword(event: FormEvent) {
     event.preventDefault();
-
-    if (newPassword !== confirmPassword) {
-      toast.error("Passwords do not match");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-
+    if (newPassword !== confirmPassword) { toast.error("Passwords do not match"); return; }
+    if (newPassword.length < 8) { toast.error("Password must be at least 8 characters"); return; }
     setLoading(true);
-
     try {
-      const { supabase } = await getSupabaseClient();
-      const { error: passwordError } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (passwordError) {
-        throw passwordError;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        await (supabase as any)
-          .from("user_settings")
-          .update({ must_change_password: false })
-          .eq("user_id", user.id);
-      }
-
+      await cemisAuth.changePassword(newPassword);
       toast.success("Password updated. Welcome.");
       navigate({ to: "/admin", search: { section: "overview" }, replace: true });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update password",
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to update password");
     } finally {
       setLoading(false);
     }

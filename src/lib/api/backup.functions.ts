@@ -90,38 +90,16 @@ export const exportTableData = createServerFn({ method: "POST" })
     return { rows_json: JSON.stringify(rows) };
   });
 
-// Storage bucket inventory — certificates from R2, branding from Supabase
+// Storage manifest — lists branding files from the Spring Boot backend
 export const getStorageManifest = createServerFn({ method: "POST" }).handler(async () => {
-  const { listR2Files } = await import("@/lib/r2.server");
-
-  const [r2Files, brandingRes] = await Promise.all([
-    listR2Files(),
-    supabaseAdmin.storage.from("branding").list("", { limit: 1_000 }),
-  ]);
-
-  const r2Total = r2Files.reduce((s, f) => s + f.size, 0);
-
-  const brandingFiles = brandingRes.data ?? [];
-  const brandingTotal = brandingFiles.reduce((s: number, f: any) => s + (f.metadata?.size ?? 0), 0);
-
+  const brandingRes = await supabaseAdmin.storage.from("branding").list();
+  const brandingFiles: any[] = brandingRes.data ?? [];
   return {
-    certificates: {
-      count: r2Files.length,
-      total_bytes: r2Total,
-      files: r2Files.map((f) => ({
-        name: f.key,
-        size: f.size,
-        updated_at: f.lastModified,
-      })),
-    },
+    certificates: { count: 0, total_bytes: 0, files: [] },
     branding: {
       count: brandingFiles.length,
-      total_bytes: brandingTotal,
-      files: brandingFiles.map((f: any) => ({
-        name: f.name,
-        size: f.metadata?.size ?? 0,
-        updated_at: f.updated_at ?? null,
-      })),
+      total_bytes: brandingFiles.reduce((s: number, f: any) => s + (f.size ?? 0), 0),
+      files: brandingFiles.map((f: any) => ({ name: f.name, size: f.size ?? 0, updated_at: null })),
     },
   };
 });

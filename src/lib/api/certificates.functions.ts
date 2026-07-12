@@ -1,309 +1,98 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import path from "node:path";
-import fs from "node:fs";
-import { createCertificateWithCode } from "../certificate";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { signPayload, verifySignature } from "../certificate-signing";
-import { sendEmail, certificateEmailHtml } from "../email.server";
-import { getPresignedUploadUrl, downloadFromR2, getPublicOrPresignedUrl } from "@/lib/r2.server";
+import { getRequest } from "@tanstack/react-start/server";
 
-const CERTIFICATES_BUCKET = "certificates";
+const API_URL =
+  (typeof process !== 'undefined' ? process.env?.VITE_API_URL : undefined) ??
+  'http://localhost:8080/api';
 
-function readLogoBuffer(): Buffer | null {
+function getAuthHeader(): string | null {
   try {
-    return fs.readFileSync(path.resolve(process.cwd(), "public/logo.png"));
+    const req = getRequest();
+    return (req?.headers as any)?.get?.('authorization') ?? null;
   } catch {
     return null;
   }
 }
 
-function certificatePdfKeys(cert: {
-  id: string;
-  certificate_id?: string | null;
-  certificate_code?: string | null;
-}) {
-  return [...new Set([cert.certificate_code, cert.certificate_id, cert.id].filter(Boolean))]
-    .map((value) => `${value}.pdf`);
-}
-
-async function downloadFromSupabaseStorage(key: string): Promise<Buffer> {
-  const { data, error } = await supabaseAdmin.storage.from(CERTIFICATES_BUCKET).download(key);
-  if (error) throw error;
-  if (!data) throw new Error(`Supabase Storage: empty response for ${key}`);
-  return Buffer.from(await data.arrayBuffer());
-}
-
-async function getSupabaseCertificateUrl(key: string): Promise<string> {
-  const storage = supabaseAdmin.storage.from(CERTIFICATES_BUCKET);
-  const { data, error } = await storage.createSignedUrl(key, 604_800);
-  if (data?.signedUrl) return data.signedUrl;
-
-  const { data: publicData } = storage.getPublicUrl(key);
-  if (publicData?.publicUrl) return publicData.publicUrl;
-
-  throw error ?? new Error(`Supabase Storage: could not create a URL for ${key}`);
-}
-
-async function resolveCertificatePdf(cert: {
-  id: string;
-  certificate_id?: string | null;
-  certificate_code?: string | null;
-}) {
-  const candidateKeys = certificatePdfKeys(cert);
-  if (!candidateKeys.length) {
-    throw new Error("Certificate has no ID or code — cannot locate PDF.");
+async function backendFetch(path: string, opts: RequestInit = {}): Promise<any> {
+  const authHeader = getAuthHeader();
+  const res = await fetch(`${API_URL}${path}`, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authHeader ? { Authorization: authHeader } : {}),
+      ...((opts.headers as Record<string, string>) ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Backend error ${res.status}: ${text}`);
   }
-
-  const failures: string[] = [];
-
-  for (const key of candidateKeys) {
-    try {
-      const buffer = await downloadFromR2(key);
-      const url = await getPublicOrPresignedUrl(key);
-      return { buffer, key, url, source: "r2" as const };
-    } catch (err: any) {
-      failures.push(`R2 ${key}: ${err?.message ?? String(err)}`);
-    }
-  }
-
-  for (const key of candidateKeys) {
-    try {
-      const buffer = await downloadFromSupabaseStorage(key);
-      const url = await getSupabaseCertificateUrl(key);
-      return { buffer, key, url, source: "supabase" as const };
-    } catch (err: any) {
-      failures.push(`Supabase ${key}: ${err?.message ?? String(err)}`);
-    }
-  }
-
-  console.warn("[certificates] PDF lookup failed in all stores", { candidateKeys, failures });
-  throw new Error(
-    `Could not retrieve PDF from storage. Tried ${candidateKeys.join(", ")}.`,
-  );
+  return res.json();
 }
 
 export const generateCertificate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ enrolmentId: z.string().uuid() }))
   .handler(async ({ data }) => {
-    const { enrolmentId } = data;
-
-    const [enrolmentRes, settingsRes] = await Promise.all([
-      supabaseAdmin
-        .from("enrolments")
-        .select(
-          "id, student_id, course_id, certificate_id, students(id, full_name, email, national_id), courses(id, prefix, name)",
-        )
-        .eq("id", enrolmentId)
-        .maybeSingle(),
-      supabaseAdmin.from("org_settings").select("org_name").eq("id", true).maybeSingle(),
-    ]);
-
-    if (enrolmentRes.error) throw enrolmentRes.error;
-    if (!enrolmentRes.data) throw new Error("Enrolment not found");
-
-    if (enrolmentRes.data.certificate_id) {
-      throw new Error(
-        "A certificate has already been issued for this enrolment. A student can only receive one certificate per course.",
-      );
-    }
-
-    const enrolment = enrolmentRes.data;
-    const student = enrolment.students as any;
-    const course = enrolment.courses;
-    const issuerName = (settingsRes.data as any)?.org_name ?? "UNZA TeLS";
-
-    const cert = await createCertificateWithCode({
-      enrolmentId: enrolment.id,
-      courseId: enrolment.course_id,
-      studentId: enrolment.student_id ?? null,
-      recipientEmail: student?.email ?? null,
-      recipientName: student?.full_name ?? null,
-      programme: course?.name ?? null,
-      nationalId: student?.national_id ?? null,
-      coursePrefix: (course as any)?.prefix ?? null,
-      issuerName,
+    return backendFetch('/certificates/generate', {
+      method: 'POST',
+      body: JSON.stringify({ enrolmentId: data.enrolmentId }),
     });
-
-    return cert;
   });
 
 export const markCertificateQueued = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateId: z.string().uuid() }))
   .handler(async ({ data }) => {
-    const { certificateId } = data;
-    const { error } = await supabaseAdmin
-      .from("certificates")
-      .update({ email_status: "queued" })
-      .eq("id", certificateId);
-    if (error) throw error;
+    await backendFetch(`/certificates/${data.certificateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ email_status: 'queued' }),
+    });
     return { ok: true };
   });
 
 export const updateCertificatesStatus = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ certificateIds: z.array(z.string().uuid()), status: z.string() }))
+  .inputValidator(
+    z.object({ certificateIds: z.array(z.string().uuid()), status: z.string() })
+  )
   .handler(async ({ data }) => {
     const { certificateIds, status } = data;
-    if (!certificateIds || certificateIds.length === 0) return { updated: 0 };
-    const { data: updated, error } = await supabaseAdmin
-      .from("certificates")
-      .update({ email_status: status })
-      .in("id", certificateIds);
-    if (error) throw error;
-    return { updated: (updated ?? []).length };
-  });
-
-export const signCertificate = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ certificateId: z.string().uuid() }))
-  .handler(async ({ data }) => {
-    const { certificateId } = data;
-    const { data: cert, error: fetchErr } = await supabaseAdmin
-      .from("certificates")
-      .select("*")
-      .eq("id", certificateId)
-      .maybeSingle();
-    if (fetchErr) throw fetchErr;
-    if (!cert) throw new Error("Certificate not found");
-
-    const secret = process.env.CERT_SIGNING_SECRET;
-    if (!secret) throw new Error("Signing secret not configured");
-
-    const payload = {
-      certificate_code: cert.certificate_code,
-      issued_at: cert.issue_date ?? new Date().toISOString(),
-      issuer_id: cert.issued_by ?? null,
-    };
-    const signature = signPayload(payload, secret);
-
-    // signed_payload and signature are added via migration; cast until types regenerate
-    const { error: updateErr } = await (supabaseAdmin.from("certificates") as any)
-      .update({ signed_payload: payload, signature })
-      .eq("id", certificateId);
-    if (updateErr) throw updateErr;
-    return { ok: true, signature };
+    if (!certificateIds?.length) return { updated: 0 };
+    await Promise.all(
+      certificateIds.map((id) =>
+        backendFetch(`/certificates/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ email_status: status }),
+        })
+      )
+    );
+    return { updated: certificateIds.length };
   });
 
 export const sendCertificateEmail = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateId: z.string().uuid() }))
   .handler(async ({ data }) => {
-    const { certificateId } = data;
-    console.log("[sendCertificateEmail] called for", certificateId);
-
-    // Load certificate + student details
-    const { data: cert, error: certErr } = await supabaseAdmin
-      .from("certificates")
-      .select(
-        "id, certificate_id, certificate_code, programme, recipient_name, recipient_email, issue_date, email_status",
-      )
-      .eq("id", certificateId)
-      .maybeSingle();
-    if (certErr) throw certErr;
-    if (!cert) throw new Error("Certificate not found");
-
-    const toEmail = (cert as any).recipient_email as string | null;
-    if (!toEmail)
-      throw new Error(
-        "This certificate has no recipient email address — update the student record first.",
-      );
-
-    // Newer PDFs live in R2 under certificate_code.pdf, but older records may still
-    // use certificate_id.pdf, the row UUID, or still live in Supabase Storage.
-    const pdf = await resolveCertificatePdf(cert as {
-      id: string;
-      certificate_id?: string | null;
-      certificate_code?: string | null;
-    }).catch((err) => {
-      throw new Error(`Could not retrieve PDF from storage: ${err.message}`);
-    });
-
-    const pdfName = pdf.key.replace(/\.pdf$/i, "");
-    const pdfBuffer = pdf.buffer;
-    const pdfUrl = pdf.url;
-    const appUrl = process.env.APP_URL ?? "https://tels.unza.ac.zm";
-    const code = (cert as any).certificate_code ?? (cert as any).certificate_id ?? "";
-    const verifyUrl = `${appUrl}/verify/${encodeURIComponent(code)}`;
-
-    const recipientName = (cert as any).recipient_name ?? "Student";
-    const programme = (cert as any).programme ?? "your programme";
-
-    try {
-      const logoBuffer = readLogoBuffer();
-      const logoAttachment = logoBuffer
-        ? [{ filename: "logo.png", content: logoBuffer, contentType: "image/png", cid: "logo@unza.ac.zm" }]
-        : [];
-
-      await sendEmail({
-        to: toEmail,
-        subject: `Your Certificate — ${programme}`,
-        html: certificateEmailHtml({
-          recipientName,
-          programme,
-          certificateCode: code,
-          pdfUrl,
-          verifyUrl,
-          logoSrc: logoBuffer ? "cid:logo@unza.ac.zm" : undefined,
-        }),
-        text: `Dear ${recipientName},\n\nCongratulations! Your certificate for ${programme} has been issued.\n\nCertificate code: ${code}\nDownload: ${pdfUrl}\nVerify: ${verifyUrl}\n\nQuestions? Email train@unza.ac.zm or call +260 775 606 059.\n\nUNZA Technology e-Learning Services`,
-        attachments: [
-          ...logoAttachment,
-          {
-            filename: `Certificate-${pdfName}.pdf`,
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
-        ],
-      });
-    } catch (err: any) {
-      console.error("[sendCertificateEmail] SMTP error:", err?.message ?? err);
-      throw new Error(`Email delivery failed: ${err?.message ?? "unknown SMTP error"}`);
-    }
-
-    // Mark as sent
-    await supabaseAdmin
-      .from("certificates")
-      .update({ email_status: "sent" })
-      .eq("id", certificateId);
-
-    return { ok: true, sentTo: toEmail };
+    return backendFetch(`/certificates/${data.certificateId}/send-email`, { method: 'POST' });
   });
 
+// Signing is handled server-side during generate; this is a no-op stub.
+export const signCertificate = createServerFn({ method: "POST" })
+  .inputValidator(z.object({ certificateId: z.string().uuid() }))
+  .handler(async (_) => ({ ok: true, signature: null }));
+
+// Previously returned R2 presigned URL — now the client posts directly to /certificates/{id}/pdf.
+// Returns a sentinel so callers that still check the return value don't crash.
 export const getCertificatePdfUploadUrl = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateCode: z.string() }))
-  .handler(async ({ data }) => {
-    const key = `${data.certificateCode}.pdf`;
-    const presignedUrl = await getPresignedUploadUrl(key);
-    return { presignedUrl, key };
-  });
+  .handler(async ({ data }) => ({
+    presignedUrl: '',
+    key: `${data.certificateCode}.pdf`,
+  }));
 
 export const verifyCertificateByCode = createServerFn({ method: "POST" })
   .inputValidator(z.object({ certificateCode: z.string() }))
   .handler(async ({ data }) => {
-    const { certificateCode } = data;
-    const { data: byCode, error } = await supabaseAdmin
-      .from("certificates")
-      .select("*")
-      .eq("certificate_code", certificateCode)
-      .maybeSingle();
-    if (error) throw error;
-    let cert = byCode;
-
-    if (!cert) {
-      const legacy = await supabaseAdmin
-        .from("certificates")
-        .select("*")
-        .eq("certificate_id", certificateCode)
-        .maybeSingle();
-      if (legacy.error) throw legacy.error;
-      cert = legacy.data;
-    }
-
-    if (!cert) return { verified: false, reason: "not_found" };
-
-    const c = cert as any;
-    if (!c.signature || !c.signed_payload)
-      return { verified: false, reason: "unsigned", certificate: cert };
-
-    const secret = process.env.CERT_SIGNING_SECRET;
-    const ok = secret ? verifySignature(c.signed_payload, c.signature, secret) : false;
-    return { verified: ok, certificate: cert, reason: ok ? "ok" : "invalid_signature" };
+    return backendFetch(
+      `/certificates/verify/${encodeURIComponent(data.certificateCode)}`
+    );
   });

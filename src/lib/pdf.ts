@@ -469,24 +469,54 @@ export async function downloadCertificatePdf(cert: CertificateInput) {
   URL.revokeObjectURL(url);
 }
 
-/** Renders the certificate and uploads the PDF directly to Cloudflare R2. */
+/** Renders the certificate and uploads the PDF to the Spring Boot backend. */
 export async function uploadCertificatePdf(cert: CertificateInput): Promise<string> {
   const blob = await generateCertificatePdf(cert);
+  const code = cert.certificateId;
 
-  // Get a presigned PUT URL from the server (R2 credentials stay server-side)
-  const { getCertificatePdfUploadUrl } = await import("@/lib/api/certificates.functions");
-  const { presignedUrl, key } = await getCertificatePdfUploadUrl({
-    data: { certificateCode: cert.certificateId },
-  });
+  const apiUrl: string =
+    (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_API_URL : undefined) ??
+    'http://localhost:8080/api';
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('cemis_token') : null;
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // Upload directly from the browser to R2 via the presigned URL
-  const res = await fetch(presignedUrl, {
-    method: "PUT",
-    headers: { "Content-Type": "application/pdf" },
-    body: blob,
+  // Resolve the certificate UUID from its code via the verify endpoint
+  let certUuid: string | null = null;
+  try {
+    const res = await fetch(`${apiUrl}/certificates/verify/${encodeURIComponent(code)}`, {
+      headers: authHeader,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      certUuid = data?.certificate?.id ?? null;
+    }
+  } catch { /* not found yet — may need to list */ }
+
+  if (!certUuid) {
+    // Fallback: search the certificate list
+    try {
+      const res = await fetch(`${apiUrl}/certificates`, { headers: authHeader });
+      if (res.ok) {
+        const certs: any[] = await res.json();
+        const found = certs.find(
+          (c) => c.certificate_code === code || c.certificate_id === code
+        );
+        certUuid = found?.id ?? null;
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!certUuid) throw new Error(`Cannot locate certificate "${code}" to upload PDF`);
+
+  const form = new FormData();
+  form.append("file", new File([blob], `${code}.pdf`, { type: "application/pdf" }));
+  const res = await fetch(`${apiUrl}/certificates/${certUuid}/pdf`, {
+    method: "POST",
+    headers: authHeader,
+    body: form,
   });
   if (!res.ok) throw new Error(`PDF upload failed: ${res.status} ${res.statusText}`);
 
-  // Return the key so callers can build a URL if needed
-  return key;
+  return `${certUuid}.pdf`;
 }

@@ -65,7 +65,7 @@ async function loadBrandingFresh(): Promise<BrandingAssets> {
   // Without this, missing signatures produce 400s in the browser console even
   // though the error is caught and handled as null.
   const { data: fileList } = await supabase.storage.from(BRANDING_BUCKET).list();
-  const existing = new Set((fileList ?? []).map((f) => f.name));
+  const existing = new Set((fileList ?? []).map((f: { name: string }) => f.name));
   const maybeDownload = (path: string) =>
     existing.has(path) ? downloadBlob(path).catch(() => null) : Promise.resolve(null);
 

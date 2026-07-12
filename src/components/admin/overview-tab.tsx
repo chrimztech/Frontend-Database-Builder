@@ -87,9 +87,7 @@ export function OverviewTab() {
       const [students, courses, certs, enrolments] = await Promise.all([
         supabase.from("students").select("id", { count: "exact", head: true }),
         supabase.from("courses").select("id", { count: "exact", head: true }),
-        supabase
-          .from("certificates")
-          .select("id, status, email_status", { count: "exact" }),
+        supabase.from("certificates").select("id, status, email_status", { count: "exact" }),
         supabase.from("enrolments").select("id, status", { count: "exact" }),
       ]);
 
@@ -104,8 +102,7 @@ export function OverviewTab() {
         certsSent: certData.filter((cert: any) => cert.email_status === "sent").length,
         certsPending: certData.filter((cert: any) => cert.email_status === "not_sent").length,
         inTraining: enrolmentData.filter(
-          (enrolment: any) =>
-            enrolment.status === "in_progress" || enrolment.status === "enrolled",
+          (enrolment: any) => enrolment.status === "in_progress" || enrolment.status === "enrolled",
         ).length,
         awaitingCert: enrolmentData.filter(
           (enrolment: any) => enrolment.status === "completed",
