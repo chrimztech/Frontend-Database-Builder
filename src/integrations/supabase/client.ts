@@ -180,6 +180,16 @@ class QueryBuilder {
           return { data: normalizeEnrolmentRow(raw), error: null };
         }
         const studentFilter = this._filters.find((f) => f.col === 'student_id' && f.op === 'eq');
+        const courseFilter  = this._filters.find((f) => f.col === 'course_id'  && f.op === 'eq');
+        // Combined student+course lookup used by CSV import duplicate-enrolment check
+        if (studentFilter && courseFilter && isSingle) {
+          const raw  = await apiFetch(`/enrolments?studentId=${studentFilter.val}`);
+          const list = normalizeEnrolments(raw);
+          const match = Array.isArray(list)
+            ? (list.find((e: any) => e.course_id === courseFilter.val) ?? null)
+            : null;
+          return { data: match, error: null };
+        }
         if (studentFilter) {
           const raw = await apiFetch(`/enrolments?studentId=${studentFilter.val}`);
           return { data: normalizeEnrolments(raw), error: null };
