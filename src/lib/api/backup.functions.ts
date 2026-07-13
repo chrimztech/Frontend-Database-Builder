@@ -1,30 +1,20 @@
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-
-const EXPORT_TABLES = [
-  "students",
-  "courses",
-  "enrolments",
-  "certificates",
-  "student_access_log",
-  "user_roles",
-  "org_settings",
-] as const;
+// Backup & export helpers — plain async functions so they run in the browser
+// where the user's JWT is available in localStorage.
+import { supabase } from "@/integrations/supabase/client";
 
 const ORDER_BY: Record<string, string> = {
-  students: "created_at",
-  courses: "created_at",
-  enrolments: "enrolled_at",
-  certificates: "created_at",
+  students:           "created_at",
+  courses:            "created_at",
+  enrolments:         "enrolled_at",
+  certificates:       "created_at",
   student_access_log: "created_at",
-  user_roles: "created_at",
-  org_settings: "id",
+  user_roles:         "created_at",
+  org_settings:       "id",
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAll(table: string): Promise<any[]> {
-  const { data, error } = await (supabaseAdmin as any)
+  const { data, error } = await (supabase as any)
     .from(table)
     .select("*")
     .order(ORDER_BY[table] ?? "id", { ascending: true })
@@ -35,7 +25,7 @@ async function fetchAll(table: string): Promise<any[]> {
 }
 
 // Full JSON backup — all tables in one payload
-export const createFullBackup = createServerFn({ method: "POST" }).handler(async () => {
+export async function createFullBackup() {
   const [
     students,
     courses,
@@ -44,15 +34,20 @@ export const createFullBackup = createServerFn({ method: "POST" }).handler(async
     student_access_log,
     user_roles,
     org_settings,
-  ] = await Promise.all(EXPORT_TABLES.map((t) => fetchAll(t)));
+  ] = await Promise.all([
+    "students",
+    "courses",
+    "enrolments",
+    "certificates",
+    "student_access_log",
+    "user_roles",
+    "org_settings",
+  ].map((t) => fetchAll(t)));
 
-  // Return as a typed string so TanStack Start serialization is happy;
-  // the client parses it back to JSON before triggering the download.
   return {
-    exported_at: new Date().toISOString(),
+    exported_at:    new Date().toISOString(),
     schema_version: "1.0" as string,
-    system: "UNZA TeLS e-Certificate System" as string,
-    // Serialise each table to a JSON string to avoid unknown-type issues
+    system:         "UNZA TeLS e-Certificate System" as string,
     tables_json: JSON.stringify({
       students,
       courses,
@@ -63,43 +58,49 @@ export const createFullBackup = createServerFn({ method: "POST" }).handler(async
       org_settings,
     }),
     counts: {
-      students: students.length,
-      courses: courses.length,
-      enrolments: enrolments.length,
-      certificates: certificates.length,
+      students:           students.length,
+      courses:            courses.length,
+      enrolments:         enrolments.length,
+      certificates:       certificates.length,
       student_access_log: student_access_log.length,
     },
   };
-});
+}
 
-// Single-table export — returns rows as a JSON string to avoid serialization check
-export const exportTableData = createServerFn({ method: "POST" })
-  .inputValidator(
-    z.object({
-      table: z.enum([
-        "students",
-        "courses",
-        "enrolments",
-        "certificates",
-        "student_access_log",
-      ]),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const rows = await fetchAll(data.table);
-    return { rows_json: JSON.stringify(rows) };
-  });
+// Single-table export
+export async function exportTableData({
+  data,
+}: {
+  data: {
+    table:
+      | "students"
+      | "courses"
+      | "enrolments"
+      | "certificates"
+      | "student_access_log";
+  };
+}) {
+  const rows = await fetchAll(data.table);
+  return { rows_json: JSON.stringify(rows) };
+}
 
 // Storage manifest — lists branding files from the Spring Boot backend
-export const getStorageManifest = createServerFn({ method: "POST" }).handler(async () => {
-  const brandingRes = await supabaseAdmin.storage.from("branding").list();
+export async function getStorageManifest() {
+  const brandingRes = await supabase.storage.from("branding").list();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const brandingFiles: any[] = brandingRes.data ?? [];
   return {
-    certificates: { count: 0, total_bytes: 0, files: [] },
+    certificates: { count: 0, total_bytes: 0, files: [] as never[] },
     branding: {
-      count: brandingFiles.length,
+      count:       brandingFiles.length,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       total_bytes: brandingFiles.reduce((s: number, f: any) => s + (f.size ?? 0), 0),
-      files: brandingFiles.map((f: any) => ({ name: f.name, size: f.size ?? 0, updated_at: null })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      files: brandingFiles.map((f: any) => ({
+        name:       f.name as string,
+        size:       (f.size ?? 0) as number,
+        updated_at: null as string | null,
+      })),
     },
   };
-});
+}
