@@ -1,6 +1,6 @@
 import { createLazyFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Suspense, lazy, useState, type ComponentType } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Award,
@@ -24,6 +24,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { ORG_NAME } from "@/lib/cert";
+import { auth } from "@/lib/api";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 import type { SectionId } from "./admin";
 
@@ -117,6 +118,7 @@ type NavGroup = {
 type SessionUser = {
   id: string;
   email?: string;
+  role?: "admin" | "user";
 };
 
 const NAV: NavGroup[] = [
@@ -231,13 +233,6 @@ const SECTION_META: Record<SectionId, { eyebrow: string; description: string }> 
 
 const ALL_ITEMS = NAV.flatMap((group) => group.items);
 
-let supabaseModulePromise: Promise<typeof import("@/integrations/supabase/client")> | null = null;
-
-function getSupabaseClient() {
-  supabaseModulePromise ??= import("@/integrations/supabase/client");
-  return supabaseModulePromise;
-}
-
 export const Route = createLazyFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
@@ -304,28 +299,12 @@ function AdminPage() {
   const user: SessionUser | null = sessionUser ?? null;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const { data: isAdmin = null } = useQuery({
-    queryKey: ["admin-role", sessionUser?.id],
-    queryFn: async () => {
-      if (!sessionUser?.id) return false;
-      const { supabase } = await getSupabaseClient();
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", sessionUser.id)
-        .eq("role", "admin")
-        .maybeSingle();
-      return Boolean(data);
-    },
-    enabled: !!sessionUser,
-    staleTime: 5 * 60_000,
-  });
+  const isAdmin = sessionUser ? sessionUser.role === "admin" : null;
 
   async function signOut() {
-    const { supabase } = await getSupabaseClient();
     await queryClient.cancelQueries();
     queryClient.clear();
-    await supabase.auth.signOut();
+    auth.logout();
     navigate({ to: "/auth", replace: true });
   }
 

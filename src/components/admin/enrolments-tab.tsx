@@ -46,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { generateCertificate as generateCertificateServer } from "@/lib/api/certificates.functions";
 import {
   AdminEmptyState,
@@ -65,7 +65,7 @@ type Enrolment = {
   status: EnrolmentStatus;
   enrolled_at: string;
   completed_at: string | null;
-  certificate_id: string | null;
+  certificate: { id: string; certificate_code: string | null } | null;
   fee_charged: number | null;
   payment_status: PaymentStatus;
   student: {
@@ -129,16 +129,8 @@ export function EnrolmentsTab() {
   const enrolments = useQuery({
     queryKey: ["admin-enrolments"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("enrolments")
-        .select(
-          `id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status,
-           student:students ( id, full_name, email, national_id, category ),
-           course:courses ( id, name, prefix, fee_unza, fee_non_unza )`,
-        )
-        .order("enrolled_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as unknown as Enrolment[];
+      const data = await apiGet<Enrolment[]>("/enrolments");
+      return [...data].sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
     },
   });
 
@@ -187,11 +179,7 @@ export function EnrolmentsTab() {
     if (selectedIds.size === 0) return;
     setBulkBusy(true);
     try {
-      const { error } = await supabase
-        .from("enrolments")
-        .update({ status: "in_progress", started_at: new Date().toISOString() })
-        .in("id", [...selectedIds]);
-      if (error) throw error;
+      await apiPost("/enrolments/bulk-start", { ids: [...selectedIds] });
       toast.success(`${selectedIds.size} enrolment(s) marked In progress`);
       refresh();
     } catch (err: any) {
@@ -316,11 +304,7 @@ function EnrolRow({
   async function setStatus(status: EnrolmentStatus) {
     setBusy(true);
     try {
-      const patch: { status: EnrolmentStatus; started_at?: string; completed_at?: string } = { status };
-      if (status === "in_progress" && !enrolment.completed_at) patch.started_at = new Date().toISOString();
-      if (status === "completed") patch.completed_at = new Date().toISOString();
-      const { error } = await supabase.from("enrolments").update(patch).eq("id", enrolment.id);
-      if (error) throw error;
+      await apiPatch(`/enrolments/${enrolment.id}/status`, { status });
       toast.success(`Marked ${STATUS_LABEL[status]}`);
       onChange();
     } catch (err: any) {
@@ -347,10 +331,7 @@ function EnrolRow({
         issueDate: new Date().toISOString().slice(0, 10),
         nrcNumber: enrolment.student.national_id ?? undefined,
       });
-      await supabase
-        .from("enrolments")
-        .update({ status: "certified", completed_at: enrolment.completed_at ?? new Date().toISOString() })
-        .eq("id", enrolment.id);
+      // Certificate generation already marks the enrolment certified server-side.
       toast.success(`Certificate ${cert.certificate_code} generated`);
       onChange();
     } catch (err: any) {
@@ -362,17 +343,25 @@ function EnrolRow({
 
   async function remove() {
     if (!window.confirm("Remove this enrolment?")) return;
-    const { error } = await supabase.from("enrolments").delete().eq("id", enrolment.id);
-    if (error) toast.error(error.message);
-    else { toast.success("Enrolment removed"); onChange(); }
+    try {
+      await apiDelete(`/enrolments/${enrolment.id}`);
+      toast.success("Enrolment removed");
+      onChange();
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed");
+    }
   }
 
   async function cyclePayment() {
     const order: PaymentStatus[] = ["pending", "paid", "waived", "free"];
     const next = order[(order.indexOf(enrolment.payment_status) + 1) % order.length];
-    const { error } = await supabase.from("enrolments").update({ payment_status: next }).eq("id", enrolment.id);
-    if (error) toast.error(error.message);
-    else { toast.success(`Payment: ${PAY_LABEL[next]}`); onChange(); }
+    try {
+      await apiPatch(`/enrolments/${enrolment.id}/payment`, { payment_status: next });
+      toast.success(`Payment: ${PAY_LABEL[next]}`);
+      onChange();
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed");
+    }
   }
 
   const canSelect = enrolment.status === "enrolled";
@@ -422,7 +411,7 @@ function EnrolRow({
               Mark completed <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           )}
-          {enrolment.status === "completed" && !enrolment.certificate_id && (
+          {enrolment.status === "completed" && !enrolment.certificate && (
             <Button size="sm" disabled={busy} onClick={generateCertificate}>
               <Award className="mr-1 h-4 w-4" /> Generate certificate
             </Button>
@@ -529,12 +518,8 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
     queryKey: ["enrol-students"],
     enabled: open,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students")
-        .select("id, full_name, category")
-        .order("full_name");
-      if (error) throw error;
-      return data;
+      const data = await apiGet<{ id: string; full_name: string; category: string }[]>("/students");
+      return [...data].sort((a, b) => a.full_name.localeCompare(b.full_name));
     },
   });
 
@@ -542,13 +527,10 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
     queryKey: ["enrol-courses"],
     enabled: open,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("courses")
-        .select("id, name, fee_unza, fee_non_unza, category")
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return data;
+      const data = await apiGet<
+        { id: string; name: string; fee_unza: number | null; fee_non_unza: number | null; category: string }[]
+      >("/courses?active=true");
+      return [...data].sort((a, b) => a.name.localeCompare(b.name));
     },
   });
 
@@ -570,13 +552,12 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
     try {
       const feeCharged = finalFee == null || Number.isNaN(finalFee) ? null : finalFee;
       const autoPaymentStatus: PaymentStatus = feeCharged === 0 ? "free" : paymentStatus;
-      const { error } = await supabase.from("enrolments").insert({
+      await apiPost("/enrolments", {
         student_id: studentId,
         course_id: courseId,
         fee_charged: feeCharged,
         payment_status: autoPaymentStatus,
       });
-      if (error) throw error;
       toast.success("Enrolment created");
       setStudent("");
       setCourse("");

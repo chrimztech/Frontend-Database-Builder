@@ -5,7 +5,7 @@ import { Send, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { supabase } from '@/integrations/supabase/client';
+import { apiGet } from '@/lib/api';
 import { updateCertificatesStatus } from '@/lib/api/certificates.functions';
 import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from '@/lib/certificate-delivery';
 
@@ -42,12 +42,8 @@ export function CertificateQueueTab() {
   const q = useQuery({
     queryKey: ['certificate-queue'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('certificates')
-        .select('id, certificate_id, certificate_code, email_status, recipient_name, recipient_email, programme, issue_date, issuer_name, national_id, created_at')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as QueueCertificate[];
+      const data = await apiGet<QueueCertificate[]>('/certificates');
+      return [...data].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
     },
   });
 

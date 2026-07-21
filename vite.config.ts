@@ -12,16 +12,16 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Production target is our own Linux server, not Cloudflare — build a standalone Node server.
+  nitro: {
+    preset: "node-server",
+  },
   vite: {
     build: {
       rollupOptions: {
         output: {
           manualChunks(id) {
             const normalizedId = id.replace(/\\/g, "/");
-
-            if (normalizedId.endsWith("/src/integrations/supabase/client.ts")) {
-              return "supabase-client";
-            }
 
             if (!normalizedId.includes("/node_modules/")) {
               return undefined;
@@ -37,10 +37,6 @@ export default defineConfig({
 
             if (normalizedId.includes("/node_modules/@tanstack/")) {
               return "tanstack-core";
-            }
-
-            if (normalizedId.includes("/node_modules/@supabase/")) {
-              return "supabase-core";
             }
 
             if (normalizedId.includes("/node_modules/@radix-ui/")) {

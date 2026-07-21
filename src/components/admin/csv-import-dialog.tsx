@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPost, apiPut } from "@/lib/api";
 
 type PaymentStatus = "pending" | "paid" | "waived" | "free";
 type StudentCategory = "unza" | "non_unza";
@@ -177,16 +177,14 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
     const out: ImportResult[] = [];
 
     // Load all courses once for name/prefix matching
-    const { data: courses } = await supabase.from("courses").select("id, name, prefix");
+    const courses = await apiGet<{ id: string; name: string; prefix: string }[]>("/courses").catch(() => []);
     const findCourse = (name: string) => {
       if (!name) return null;
       const lo = name.toLowerCase();
-      return (courses ?? []).find(
+      return courses.find(
         (c) => c.name.toLowerCase() === lo || c.prefix.toLowerCase() === lo,
       ) ?? null;
     };
-
-    const { data: { user } } = await supabase.auth.getUser();
 
     for (const row of rows.filter((r) => r.errors.length === 0)) {
       try {
@@ -203,31 +201,23 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
 
         // Upsert student — match on national_id to avoid duplicates
         let studentId: string | null = null;
-        const { data: existing } = await supabase
-          .from("students")
-          .select("id")
-          .eq("national_id", row.national_id)
-          .maybeSingle();
+        const existing = await apiGet<{ id: string } | null>(
+          `/students?nationalId=${encodeURIComponent(row.national_id)}`,
+        ).catch(() => null);
 
         if (existing) {
-          await supabase.from("students").update(studentPayload).eq("id", existing.id);
+          await apiPut(`/students/${existing.id}`, studentPayload);
           studentId = existing.id;
         } else {
-          const { data: inserted, error: insertErr } = await supabase
-            .from("students")
-            .insert(studentPayload)
-            .select("id")
-            .single();
-          if (insertErr) throw insertErr;
+          const inserted = await apiPost<{ id: string }>("/students", studentPayload);
           studentId = inserted?.id ?? null;
         }
 
         // Audit log
-        if (user && studentId) {
-          await supabase
-            .from("student_access_log")
-            .insert({ student_id: studentId, actor_id: user.id, action: "create", detail: `csv-import: ${row.full_name}` })
-            .then(() => {}, () => {});
+        if (studentId) {
+          await apiPost("/reports/audit-log", {
+            student_id: studentId, action: "create", detail: `csv-import: ${row.full_name}`,
+          }).catch(() => {});
         }
 
         // Auto-enrol if course specified and payment qualifies
@@ -238,23 +228,18 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
         if (course && studentId && QUALIFIES_FOR_ENROLMENT.includes(row.payment_status)) {
           courseName = course.name;
           // Skip if already enrolled
-          const { data: existingEnrol } = await supabase
-            .from("enrolments")
-            .select("id")
-            .eq("student_id", studentId)
-            .eq("course_id", course.id)
-            .maybeSingle();
+          const existingEnrolments = await apiGet<{ course: { id: string } | null }[]>(
+            `/enrolments?studentId=${studentId}`,
+          ).catch(() => []);
+          const alreadyEnrolled = existingEnrolments.some((e) => e.course?.id === course.id);
 
-          if (!existingEnrol) {
-            const { error: enrolErr } = await supabase.from("enrolments").insert({
+          if (!alreadyEnrolled) {
+            await apiPost("/enrolments", {
               student_id: studentId,
               course_id: course.id,
-              status: "enrolled",
               payment_status: row.payment_status,
               fee_charged: row.fee_charged,
-              enrolled_at: new Date().toISOString(),
             });
-            if (enrolErr) throw enrolErr;
             enrolled = true;
           }
         }

@@ -4,7 +4,7 @@ import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPut } from "@/lib/api";
 import { clearBrandingCache } from "@/lib/branding";
 
 interface Settings {
@@ -32,10 +32,14 @@ export function SettingsTab() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("org_settings").select("*").eq("id", true).maybeSingle();
-      if (error) toast.error(error.message);
-      if (data) setS(data as Settings);
-      setLoading(false);
+      try {
+        const data = await apiGet<Settings | null>("/settings");
+        if (data) setS(data);
+      } catch (e: any) {
+        toast.error(e.message ?? "Failed to load settings");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
@@ -46,8 +50,7 @@ export function SettingsTab() {
         ...s,
         org_prefix: (s.org_prefix || "ORG").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) || "ORG",
       };
-      const { error } = await supabase.from("org_settings").update(payload).eq("id", true);
-      if (error) throw error;
+      await apiPut("/settings", payload);
       clearBrandingCache();
       toast.success("Settings saved");
       setS(payload);

@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPut } from "@/lib/api";
 
 type StudentCategory = "unza" | "non_unza";
 
@@ -64,12 +64,8 @@ export function StudentProfilesTab() {
   const students = useQuery({
     queryKey: ["admin-student-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students")
-        .select("id, full_name, email, phone, category, unza_student_id, national_id, notes, metadata, created_at")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as StudentProfile[];
+      const data = await apiGet<StudentProfile[]>("/students");
+      return [...data].sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
   });
 
@@ -82,13 +78,8 @@ export function StudentProfilesTab() {
     queryKey: ["student-enrolments", selected?.id],
     enabled: !!selected?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("enrolments")
-        .select("id, status, enrolled_at, course_id, courses(id, name, code)")
-        .eq("student_id", selected!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as any[];
+      const data = await apiGet<any[]>(`/enrolments?studentId=${selected!.id}`);
+      return [...data].sort((a, b) => (b.enrolled_at ?? "").localeCompare(a.enrolled_at ?? ""));
     },
   });
 
@@ -196,8 +187,7 @@ export function StudentProfilesTab() {
       updatePayload.email = normalizeText(email) || null;
       updatePayload.phone = normalizeText(phone) || null;
 
-      const { error } = await supabase.from("students").update(updatePayload).eq("id", selected.id);
-      if (error) throw error;
+      await apiPut(`/students/${selected.id}`, updatePayload);
       toast.success("Student profile metadata saved");
       qc.invalidateQueries({ queryKey: ["admin-student-profiles"] });
     } catch (error: any) {
@@ -436,8 +426,8 @@ export function StudentProfilesTab() {
                       {(enrolmentsQuery.data ?? []).map((e: any) => (
                         <div key={e.id} className="flex items-center justify-between">
                           <div>
-                            <div className="font-medium">{e.courses?.name ?? e.course_id}</div>
-                            <div className="text-xs text-muted-foreground">{e.courses?.code ?? ""} - {e.status}</div>
+                            <div className="font-medium">{e.course?.name ?? e.course?.id}</div>
+                            <div className="text-xs text-muted-foreground">{e.course?.code ?? ""} - {e.status}</div>
                           </div>
                           <div className="text-xs text-muted-foreground">{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString() : ''}</div>
                         </div>

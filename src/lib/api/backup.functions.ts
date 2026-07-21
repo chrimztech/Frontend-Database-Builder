@@ -1,27 +1,22 @@
 // Backup & export helpers — plain async functions so they run in the browser
 // where the user's JWT is available in localStorage.
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet } from "@/lib/api";
 
-const ORDER_BY: Record<string, string> = {
-  students:           "created_at",
-  courses:            "created_at",
-  enrolments:         "enrolled_at",
-  certificates:       "created_at",
-  student_access_log: "created_at",
-  user_roles:         "created_at",
-  org_settings:       "id",
+const TABLE_ENDPOINT: Record<string, string> = {
+  students:           "/students",
+  courses:            "/courses",
+  enrolments:         "/enrolments",
+  certificates:       "/certificates",
+  student_access_log: "/reports/audit-log?page=0&size=50000",
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAll(table: string): Promise<any[]> {
-  const { data, error } = await (supabase as any)
-    .from(table)
-    .select("*")
-    .order(ORDER_BY[table] ?? "id", { ascending: true })
-    .limit(50_000);
-  if (error) throw new Error(`${table}: ${error.message}`);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data as any[]) ?? [];
+  const path = TABLE_ENDPOINT[table];
+  if (!path) throw new Error(`${table}: unknown table`);
+  return apiGet<any[]>(path).catch((err: Error) => {
+    throw new Error(`${table}: ${err.message}`);
+  });
 }
 
 // Full JSON backup — all tables in one payload
@@ -32,17 +27,17 @@ export async function createFullBackup() {
     enrolments,
     certificates,
     student_access_log,
-    user_roles,
-    org_settings,
+    users,
+    settings,
   ] = await Promise.all([
-    "students",
-    "courses",
-    "enrolments",
-    "certificates",
-    "student_access_log",
-    "user_roles",
-    "org_settings",
-  ].map((t) => fetchAll(t)));
+    fetchAll("students"),
+    fetchAll("courses"),
+    fetchAll("enrolments"),
+    fetchAll("certificates"),
+    fetchAll("student_access_log"),
+    apiGet<any[]>("/users").catch(() => []),
+    apiGet<any>("/settings").catch(() => null),
+  ]);
 
   return {
     exported_at:    new Date().toISOString(),
@@ -54,8 +49,8 @@ export async function createFullBackup() {
       enrolments,
       certificates,
       student_access_log,
-      user_roles,
-      org_settings,
+      users,
+      org_settings: settings ? [settings] : [],
     }),
     counts: {
       students:           students.length,
@@ -86,19 +81,15 @@ export async function exportTableData({
 
 // Storage manifest — lists branding files from the Spring Boot backend
 export async function getStorageManifest() {
-  const brandingRes = await supabase.storage.from("branding").list();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const brandingFiles: any[] = brandingRes.data ?? [];
+  const brandingFiles = await apiGet<{ name: string; size: number }[]>("/branding").catch(() => []);
   return {
     certificates: { count: 0, total_bytes: 0, files: [] as never[] },
     branding: {
       count:       brandingFiles.length,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      total_bytes: brandingFiles.reduce((s: number, f: any) => s + (f.size ?? 0), 0),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      files: brandingFiles.map((f: any) => ({
-        name:       f.name as string,
-        size:       (f.size ?? 0) as number,
+      total_bytes: brandingFiles.reduce((s, f) => s + (f.size ?? 0), 0),
+      files: brandingFiles.map((f) => ({
+        name:       f.name,
+        size:       f.size ?? 0,
         updated_at: null as string | null,
       })),
     },

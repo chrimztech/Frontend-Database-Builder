@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Download, RefreshCw } from "lucide-react";
@@ -23,14 +23,14 @@ export function AuditLogTab() {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("student_access_log")
-      .select("id, action, actor_id, actor_email, detail, created_at, student_id, students(full_name, email)")
-      .order("created_at", { ascending: false })
-      .limit(500);
-    if (error) toast.error(error.message);
-    setRows((data as any) ?? []);
-    setLoading(false);
+    try {
+      const data = await apiGet<Row[]>("/reports/audit-log?page=0&size=500");
+      setRows(data ?? []);
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed to load audit log");
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => { load(); }, []);
 

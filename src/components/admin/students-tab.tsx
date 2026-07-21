@@ -41,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -111,11 +111,9 @@ async function logAccess(
   studentId: string | null,
   detail?: string,
 ) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  await supabase.from("student_access_log").insert({
-    student_id: studentId, actor_id: user.id, action, detail: detail ?? null,
-  }).then(() => {}, () => {});
+  await apiPost("/reports/audit-log", {
+    student_id: studentId, action, detail: detail ?? null,
+  }).catch(() => {});
 }
 
 export function StudentsTab() {
@@ -126,12 +124,8 @@ export function StudentsTab() {
   const students = useQuery({
     queryKey: ["admin-students"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as Student[];
+      const data = await apiGet<Student[]>("/students");
+      return [...data].sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
   });
 
@@ -261,22 +255,20 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
     enabled: expanded,
     queryFn: async () => {
       await logAccess("view", student.id, "view courses");
-      const { data, error } = await supabase
-        .from("enrolments")
-        .select("id, status, enrolled_at, completed_at, certificate_id, fee_charged, payment_status, course:courses ( id, name, prefix )")
-        .eq("student_id", student.id)
-        .order("enrolled_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as unknown as StudentEnrolment[];
+      return apiGet<StudentEnrolment[]>(`/enrolments?studentId=${student.id}`);
     },
   });
 
   async function remove() {
     if (!window.confirm(`Delete ${student.full_name}? Their enrolments will also be removed.`)) return;
     await logAccess("delete", student.id, student.full_name);
-    const { error } = await supabase.from("students").delete().eq("id", student.id);
-    if (error) toast.error(error.message);
-    else { toast.success("Student deleted"); onChange(); }
+    try {
+      await apiDelete(`/students/${student.id}`);
+      toast.success("Student deleted");
+      onChange();
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed");
+    }
   }
 
   const idDisplay = student.category === "unza" ? student.unza_student_id ?? "-" : student.national_id ?? "-";
@@ -448,27 +440,14 @@ function StudentDialog({
       };
 
       if (student) {
-        const { error } = await supabase
-          .from("students")
-          .update(payload)
-          .eq("id", student.id);
-        if (error) {
-          throw error;
-        }
+        await apiPut(`/students/${student.id}`, payload);
 
         await logAccess("update", student.id, "edit details");
         toast.success("Student updated");
       } else {
-        const { data, error } = await supabase
-          .from("students")
-          .insert(payload)
-          .select("id")
-          .single();
-        if (error) {
-          throw error;
-        }
+        const created = await apiPost<{ id: string }>("/students", payload);
 
-        await logAccess("create", data?.id ?? null, payload.full_name);
+        await logAccess("create", created?.id ?? null, payload.full_name);
         toast.success("Student added");
         setFullName("");
         setEmail("");

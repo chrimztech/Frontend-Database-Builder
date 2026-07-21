@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { supabase } from '@/integrations/supabase/client';
+import { apiGet } from '@/lib/api';
 import { generateCertificate, markCertificateQueued } from '@/lib/api/certificates.functions';
 
 export function PendingCertificatesTab() {
@@ -14,14 +14,7 @@ export function PendingCertificatesTab() {
     queryKey: ['pending-certificates'],
     queryFn: async () => {
       // enrolments completed/certified and not linked to a certificate
-      const { data, error } = await supabase
-        .from('enrolments')
-        .select('id, status, student_id, course_id, students(id, full_name, email), courses(id, name, prefix)')
-        .in('status', ['completed','certified'])
-        .is('certificate_id', null)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as any[];
+      return apiGet<any[]>('/enrolments?statusIn=completed&statusIn=certified&noCertificate=true');
     },
   });
 
@@ -94,8 +87,8 @@ export function PendingCertificatesTab() {
                   <TableCell>
                     <input type="checkbox" checked={!!selected[e.id]} onChange={() => toggle(e.id)} />
                   </TableCell>
-                  <TableCell>{e.students?.full_name ?? '-'}<div className="text-xs text-muted-foreground">{e.students?.email ?? '-'}</div></TableCell>
-                  <TableCell>{e.courses?.name ?? e.course_id}<div className="text-xs text-muted-foreground">{e.courses?.prefix ?? ''}</div></TableCell>
+                  <TableCell>{e.student?.full_name ?? '-'}<div className="text-xs text-muted-foreground">{e.student?.email ?? '-'}</div></TableCell>
+                  <TableCell>{e.course?.name ?? e.course?.id}<div className="text-xs text-muted-foreground">{e.course?.prefix ?? ''}</div></TableCell>
                   <TableCell className="text-muted-foreground">{e.status}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">

@@ -1,0 +1,18 @@
+[Unit]
+Description=CeMIS Frontend (TanStack Start / Node)
+After=network.target cemis-backend.service
+
+[Service]
+Type=simple
+User=cemis
+Group=cemis
+WorkingDirectory=/opt/cemis/frontend
+# --env-file requires Node >= 20.6. Check with: node --version
+ExecStart=/usr/bin/node --env-file=/etc/cemis/frontend.env /opt/cemis/frontend/.output/server/index.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,10 @@
 // Helpers to load branding assets + org settings used by the PDF generator.
+// Branding files are served by the Spring Boot backend's BrandingController
+// (filesystem-backed, ./branding-assets on the server); org settings by
+// SettingsController / the org_settings table.
 import { blobToDataUrl, isPdfMimeType, readSvgMarkupFromBlob } from "./pdf-like";
 import { ensureLayout, type TemplateLayout } from "./template-layout";
+import { apiGet, apiPut, apiUpload, apiDelete, getToken } from "./api";
 
 export const BRANDING_BUCKET = "branding";
 export const SEAL_PATH = "seal.png";
@@ -8,19 +12,19 @@ export const SIGNATURE_PATH = "signature.png"; // signatory #1
 export const SIGNATURE2_PATH = "signature2.png"; // signatory #2
 export const TEMPLATE_BG_PATH = "template-background.png";
 
-let supabaseModulePromise: Promise<typeof import("@/integrations/supabase/client")> | null = null;
+const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080/api") as string;
 
-async function getSupabase() {
-  supabaseModulePromise ??= import("@/integrations/supabase/client");
-  const { supabase } = await supabaseModulePromise;
-  return supabase;
+async function listBrandingFiles(): Promise<{ name: string; size: number }[]> {
+  return apiGet<{ name: string; size: number }[]>("/branding");
 }
 
 async function downloadBlob(path: string): Promise<Blob | null> {
-  const supabase = await getSupabase();
-  const { data, error } = await supabase.storage.from(BRANDING_BUCKET).download(path);
-  if (error || !data) return null;
-  return data;
+  const token = getToken();
+  const res = await fetch(`${BASE}/branding/${encodeURIComponent(path)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  return res.blob();
 }
 
 export interface OrgSettings {
@@ -59,22 +63,20 @@ let cache: { at: number; assets: BrandingAssets } | null = null;
 let pendingLoad: Promise<BrandingAssets> | null = null;
 
 async function loadBrandingFresh(): Promise<BrandingAssets> {
-  const supabase = await getSupabase();
-
   // List existing files first so we never request a file that doesn't exist.
-  // Without this, missing signatures produce 400s in the browser console even
+  // Without this, missing signatures produce 404s in the browser console even
   // though the error is caught and handled as null.
-  const { data: fileList } = await supabase.storage.from(BRANDING_BUCKET).list();
-  const existing = new Set((fileList ?? []).map((f: { name: string }) => f.name));
+  const fileList = await listBrandingFiles().catch(() => []);
+  const existing = new Set(fileList.map((f) => f.name));
   const maybeDownload = (path: string) =>
     existing.has(path) ? downloadBlob(path).catch(() => null) : Promise.resolve(null);
 
-  const [sealBlob, signatureBlob, signature2Blob, bgBlob, settingsRes] = await Promise.all([
+  const [sealBlob, signatureBlob, signature2Blob, bgBlob, settingsRow] = await Promise.all([
     maybeDownload(SEAL_PATH),
     maybeDownload(SIGNATURE_PATH),
     maybeDownload(SIGNATURE2_PATH),
     maybeDownload(TEMPLATE_BG_PATH),
-    supabase.from("org_settings").select("*").eq("id", true).maybeSingle(),
+    apiGet<(OrgSettings & { template_layout?: unknown }) | null>("/settings").catch(() => null),
   ]);
   const bgSvgMarkup = bgBlob ? await readSvgMarkupFromBlob(bgBlob).catch(() => null) : null;
   const [seal, signature, signature2, bg] = await Promise.all([
@@ -89,18 +91,17 @@ async function loadBrandingFresh(): Promise<BrandingAssets> {
         ? blobToDataUrl(bgBlob).catch(() => null)
         : Promise.resolve(null),
   ]);
-  const row = (settingsRes.data ?? null) as (OrgSettings & { template_layout?: unknown }) | null;
-  const settings: OrgSettings = row
+  const settings: OrgSettings = settingsRow
     ? {
-        org_name: row.org_name,
-        org_prefix: row.org_prefix,
-        signatory1_name: row.signatory1_name,
-        signatory1_title: row.signatory1_title,
-        signatory2_name: row.signatory2_name,
-        signatory2_title: row.signatory2_title,
+        org_name: settingsRow.org_name,
+        org_prefix: settingsRow.org_prefix,
+        signatory1_name: settingsRow.signatory1_name,
+        signatory1_title: settingsRow.signatory1_title,
+        signatory2_name: settingsRow.signatory2_name,
+        signatory2_title: settingsRow.signatory2_title,
       }
     : DEFAULT_SETTINGS;
-  const rawLayout = row?.template_layout ?? null;
+  const rawLayout = settingsRow?.template_layout ?? null;
   const assets: BrandingAssets = {
     sealDataUrl: seal,
     signatureDataUrl: signature,
@@ -129,12 +130,7 @@ export async function loadBranding(): Promise<BrandingAssets> {
 }
 
 export async function saveTemplateLayout(layout: TemplateLayout) {
-  const supabase = await getSupabase();
-  const { error } = await supabase
-    .from("org_settings")
-    .update({ template_layout: layout as any })
-    .eq("id", true);
-  if (error) throw error;
+  await apiPut("/settings", { template_layout: layout });
   clearBrandingCache();
 }
 
@@ -144,26 +140,13 @@ export function clearBrandingCache() {
 }
 
 export async function uploadBrandingFile(path: string, file: File) {
-  const supabase = await getSupabase();
-  const { error } = await supabase.storage
-    .from(BRANDING_BUCKET)
-    .upload(path, file, { upsert: true, contentType: file.type || "image/png" });
-  if (error) throw error;
+  const form = new FormData();
+  form.append("file", file, path);
+  await apiUpload(`/branding/${encodeURIComponent(path)}`, form);
   clearBrandingCache();
 }
 
 export async function deleteBrandingFile(path: string) {
-  const supabase = await getSupabase();
-  const { error } = await supabase.storage.from(BRANDING_BUCKET).remove([path]);
-  if (error) throw error;
+  await apiDelete(`/branding/${encodeURIComponent(path)}`);
   clearBrandingCache();
-}
-
-export async function getBrandingSignedUrl(path: string, expiresIn = 600): Promise<string | null> {
-  const supabase = await getSupabase();
-  const { data, error } = await supabase.storage
-    .from(BRANDING_BUCKET)
-    .createSignedUrl(path, expiresIn);
-  if (error) return null;
-  return data?.signedUrl ?? null;
 }

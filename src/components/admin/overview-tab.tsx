@@ -11,7 +11,19 @@ import {
   Users,
 } from "lucide-react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet } from "@/lib/api";
+
+type OverviewStats = {
+  totalStudents: number;
+  totalCourses: number;
+  totalCertificates: number;
+  enrolled: number;
+  inProgress: number;
+  completed: number;
+  certsValid: number;
+  certsSent: number;
+  certsPending: number;
+};
 
 type StatCardProps = {
   icon: ComponentType<{ className?: string }>;
@@ -84,29 +96,16 @@ export function OverviewTab() {
   const stats = useQuery({
     queryKey: ["admin-stats"],
     queryFn: async () => {
-      const [students, courses, certs, enrolments] = await Promise.all([
-        supabase.from("students").select("id", { count: "exact", head: true }),
-        supabase.from("courses").select("id", { count: "exact", head: true }),
-        supabase.from("certificates").select("id, status, email_status", { count: "exact" }),
-        supabase.from("enrolments").select("id, status", { count: "exact" }),
-      ]);
-
-      const certData = certs.data ?? [];
-      const enrolmentData = enrolments.data ?? [];
-
+      const s = await apiGet<OverviewStats>("/reports/stats");
       return {
-        students: students.count ?? 0,
-        courses: courses.count ?? 0,
-        certsTotal: certs.count ?? 0,
-        certsValid: certData.filter((cert: any) => cert.status === "valid").length,
-        certsSent: certData.filter((cert: any) => cert.email_status === "sent").length,
-        certsPending: certData.filter((cert: any) => cert.email_status === "not_sent").length,
-        inTraining: enrolmentData.filter(
-          (enrolment: any) => enrolment.status === "in_progress" || enrolment.status === "enrolled",
-        ).length,
-        awaitingCert: enrolmentData.filter(
-          (enrolment: any) => enrolment.status === "completed",
-        ).length,
+        students: s.totalStudents,
+        courses: s.totalCourses,
+        certsTotal: s.totalCertificates,
+        certsValid: s.certsValid,
+        certsSent: s.certsSent,
+        certsPending: s.certsPending,
+        inTraining: s.enrolled + s.inProgress,
+        awaitingCert: s.completed,
       };
     },
   });

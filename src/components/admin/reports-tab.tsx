@@ -3,7 +3,7 @@ import { Download, TrendingUp, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet } from "@/lib/api";
 import { AdminPageHeader, AdminPanel, AdminStat } from "@/components/admin/admin-ui";
 
 const ReportsCharts = lazy(() =>
@@ -19,7 +19,7 @@ type EnrolmentRow = {
   status: string | null;
   payment_status: string | null;
   fee_charged: number | null;
-  course_id: string;
+  course: { id: string } | null;
   created_at: string;
 };
 type CertRow = { id: string; issue_date: string | null; course_id: string | null };
@@ -34,27 +34,22 @@ export function ReportsTab() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [studentResult, courseResult, enrolmentResult, certResult] = await Promise.all([
-        supabase.from("students").select("id, category, created_at"),
-        supabase.from("courses").select("id, name, code, category"),
-        supabase
-          .from("enrolments")
-          .select("id, status, payment_status, fee_charged, course_id, created_at"),
-        supabase.from("certificates").select("id, issue_date, course_id"),
-      ]);
-
-      if (studentResult.error || courseResult.error || enrolmentResult.error || certResult.error) {
-        toast.error(
-          (studentResult.error || courseResult.error || enrolmentResult.error || certResult.error)!
-            .message,
-        );
+      try {
+        const [studentData, courseData, enrolmentData, certData] = await Promise.all([
+          apiGet<StudentRow[]>("/students"),
+          apiGet<CourseRow[]>("/courses"),
+          apiGet<EnrolmentRow[]>("/enrolments"),
+          apiGet<CertRow[]>("/certificates"),
+        ]);
+        setStudents(studentData ?? []);
+        setCourses(courseData ?? []);
+        setEnrolments(enrolmentData ?? []);
+        setCerts(certData ?? []);
+      } catch (error: any) {
+        toast.error(error.message ?? "Failed to load reports");
+      } finally {
+        setLoading(false);
       }
-
-      setStudents((studentResult.data as StudentRow[]) ?? []);
-      setCourses((courseResult.data as CourseRow[]) ?? []);
-      setEnrolments((enrolmentResult.data as EnrolmentRow[]) ?? []);
-      setCerts((certResult.data as CertRow[]) ?? []);
-      setLoading(false);
     })();
   }, []);
 
@@ -90,7 +85,8 @@ export function ReportsTab() {
     });
 
     enrolments.forEach((row) => {
-      const course = map.get(row.course_id);
+      if (!row.course?.id) return;
+      const course = map.get(row.course.id);
       if (course) {
         course.enrolments += 1;
       }

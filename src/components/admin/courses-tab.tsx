@@ -33,7 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -102,17 +102,10 @@ export function CoursesTab() {
   const courses = useQuery({
     queryKey: ["admin-courses"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("courses")
-        .select("*")
-        .order("category")
-        .order("name");
-
-      if (error) {
-        throw error;
-      }
-
-      return data as Course[];
+      const data = await apiGet<Course[]>("/courses");
+      return [...data].sort(
+        (a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name),
+      );
     },
   });
 
@@ -216,13 +209,12 @@ function CourseRow({ course, onChange }: { course: Course; onChange: () => void 
       return;
     }
 
-    const { error } = await supabase.from("courses").delete().eq("id", course.id);
-
-    if (error) {
-      toast.error(error.message);
-    } else {
+    try {
+      await apiDelete(`/courses/${course.id}`);
       toast.success("Course deleted");
       onChange();
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed");
     }
   }
 
@@ -343,22 +335,10 @@ function CourseDialog({
       };
 
       if (course) {
-        const { error } = await supabase
-          .from("courses")
-          .update(payload)
-          .eq("id", course.id);
-
-        if (error) {
-          throw error;
-        }
-
+        await apiPut(`/courses/${course.id}`, payload);
         toast.success("Course updated");
       } else {
-        const { error } = await supabase.from("courses").insert(payload);
-        if (error) {
-          throw error;
-        }
-
+        await apiPost("/courses", payload);
         toast.success("Course added");
       }
 

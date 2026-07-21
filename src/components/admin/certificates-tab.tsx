@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { verificationUrl } from "@/lib/cert";
 import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from "@/lib/certificate-delivery";
 import {
@@ -60,16 +60,8 @@ export function CertificatesTab() {
   const certs = useQuery({
     queryKey: ["admin-certs"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("certificates")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      return data as Cert[];
+      const data = await apiGet<Cert[]>("/certificates");
+      return [...data].sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
   });
 
@@ -232,29 +224,15 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
     try {
       if (cert.status === "valid") {
         const reason = window.prompt("Reason for revoking (optional):") ?? null;
-        const { error } = await supabase
-          .from("certificates")
-          .update({
-            status: "revoked",
-            revoked_at: new Date().toISOString(),
-            revoke_reason: reason,
-          })
-          .eq("id", cert.id);
-
-        if (error) {
-          throw error;
-        }
+        await apiPatch(`/certificates/${cert.id}`, {
+          status: "revoked",
+          revoked_at: new Date().toISOString(),
+          revoke_reason: reason,
+        });
 
         toast.success("Certificate revoked");
       } else {
-        const { error } = await supabase
-          .from("certificates")
-          .update({ status: "valid", revoked_at: null, revoke_reason: null })
-          .eq("id", cert.id);
-
-        if (error) {
-          throw error;
-        }
+        await apiPatch(`/certificates/${cert.id}`, { status: "valid", revoked_at: null, revoke_reason: null });
 
         toast.success("Certificate restored");
       }
@@ -276,19 +254,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
 
     setBusy(true);
     try {
-      // Delete PDF from R2 (fire-and-forget — DB record deletion is the important part)
-      const { deleteR2Files } = await import("@/lib/api/r2.functions");
-      await deleteR2Files({
-        data: {
-          keys: [`${certificateCode}.pdf`, `${cert.certificate_id}.pdf`, `${cert.id}.pdf`],
-        },
-      }).catch(() => {});
-
-      const { error } = await supabase.from("certificates").delete().eq("id", cert.id);
-
-      if (error) {
-        throw error;
-      }
+      await apiDelete(`/certificates/${cert.id}`);
 
       toast.success("Certificate deleted");
       onChange();
