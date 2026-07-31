@@ -521,9 +521,10 @@ export function EnrolDialog({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [studentId, setStudent] = useState(presetStudent?.id ?? "");
-  const [courseId, setCourse] = useState("");
+  const [courseIds, setCourseIds] = useState<Set<string>>(new Set());
+  const [courseFilter, setCourseFilter] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("pending");
-  const [overrideFee, setOverrideFee] = useState<string>("");
+  const [feeOverrides, setFeeOverrides] = useState<Record<string, string>>({});
 
   const students = useQuery({
     queryKey: ["enrol-students"],
@@ -546,41 +547,70 @@ export function EnrolDialog({
   });
 
   const selectedStudent = presetStudent ?? (students.data ?? []).find((s: any) => s.id === studentId);
-  const selectedCourse = (courses.data ?? []).find((c: any) => c.id === courseId);
-  const suggestedFee: number | null =
-    selectedStudent && selectedCourse
-      ? selectedStudent.category === "unza"
-        ? selectedCourse.fee_unza
-        : selectedCourse.fee_non_unza
-      : null;
-  const finalFee: number | null =
-    overrideFee.trim() !== "" ? Number(overrideFee) : suggestedFee;
+  const courseList = courses.data ?? [];
+  const filteredCourses = courseFilter.trim()
+    ? courseList.filter((c: any) => c.name.toLowerCase().includes(courseFilter.trim().toLowerCase()))
+    : courseList;
+
+  function suggestedFeeFor(course: any): number | null {
+    if (!selectedStudent) return null;
+    return selectedStudent.category === "unza" ? course.fee_unza : course.fee_non_unza;
+  }
+
+  function toggleCourse(id: string) {
+    setCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const totalFee = [...courseIds].reduce((sum, id) => {
+    const course = courseList.find((c: any) => c.id === id);
+    if (!course) return sum;
+    const override = feeOverrides[id];
+    const fee = override?.trim() ? Number(override) : suggestedFeeFor(course);
+    return sum + (fee != null && !Number.isNaN(fee) ? fee : 0);
+  }, 0);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!studentId || !courseId) return toast.error("Pick a student and a course");
+    if (!studentId) return toast.error("Pick a student");
+    if (courseIds.size === 0) return toast.error("Pick at least one course");
     setBusy(true);
-    try {
-      const feeCharged = finalFee == null || Number.isNaN(finalFee) ? null : finalFee;
+    let ok = 0;
+    let fail = 0;
+    for (const id of courseIds) {
+      const course = courseList.find((c: any) => c.id === id);
+      const override = feeOverrides[id];
+      const suggested = course ? suggestedFeeFor(course) : null;
+      const fee = override?.trim() ? Number(override) : suggested;
+      const feeCharged = fee == null || Number.isNaN(fee) ? null : fee;
       const autoPaymentStatus: PaymentStatus = feeCharged === 0 ? "free" : paymentStatus;
-      await apiPost("/enrolments", {
-        student_id: studentId,
-        course_id: courseId,
-        fee_charged: feeCharged,
-        payment_status: autoPaymentStatus,
-      });
-      toast.success("Enrolment created");
-      setStudent(presetStudent?.id ?? "");
-      setCourse("");
-      setOverrideFee("");
-      setPaymentStatus("pending");
-      onSaved();
-      setOpen(false);
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed");
-    } finally {
-      setBusy(false);
+      try {
+        await apiPost("/enrolments", {
+          student_id: studentId,
+          course_id: id,
+          fee_charged: feeCharged,
+          payment_status: autoPaymentStatus,
+        });
+        ok++;
+      } catch (err: any) {
+        fail++;
+        toast.error(`${course?.name ?? "Course"}: ${err.message ?? "failed"}`);
+      }
     }
+    setBusy(false);
+    if (ok > 0) toast.success(`Enrolled in ${ok} course${ok !== 1 ? "s" : ""}`);
+    if (fail > 0 && ok === 0) return; // nothing succeeded — leave the dialog open to retry
+    setStudent(presetStudent?.id ?? "");
+    setCourseIds(new Set());
+    setFeeOverrides({});
+    setCourseFilter("");
+    setPaymentStatus("pending");
+    onSaved();
+    setOpen(false);
   }
 
   return (
@@ -593,11 +623,12 @@ export function EnrolDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Enrol a student</DialogTitle>
           <DialogDescription>
-            Fee is suggested automatically from the student category and course fee schedule.
+            Pick one or more courses — the student is enrolled in all of them at once. Fee is
+            suggested automatically from the student category and each course's fee schedule.
           </DialogDescription>
         </DialogHeader>
 
@@ -621,59 +652,106 @@ export function EnrolDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-semibold">Course</Label>
-            <Select value={courseId} onValueChange={setCourse}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a course" />
-              </SelectTrigger>
-              <SelectContent>
-                {(courses.data ?? []).map((course: any) => (
-                  <SelectItem key={course.id} value={course.id}>
-                    {course.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">
+                Courses {courseIds.size > 0 ? `(${courseIds.size} selected)` : ""}
+              </Label>
+              {courseIds.size > 0 && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setCourseIds(new Set())}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <Input
+              placeholder="Filter courses..."
+              value={courseFilter}
+              onChange={(e) => setCourseFilter(e.target.value)}
+            />
+            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-input p-2">
+              {courses.isLoading ? (
+                <p className="p-2 text-sm text-muted-foreground">Loading courses...</p>
+              ) : filteredCourses.length === 0 ? (
+                <p className="p-2 text-sm text-muted-foreground">No courses match.</p>
+              ) : (
+                filteredCourses.map((course: any) => {
+                  const checked = courseIds.has(course.id);
+                  const suggested = suggestedFeeFor(course);
+                  return (
+                    <label
+                      key={course.id}
+                      className={`flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted ${checked ? "bg-primary/5" : ""}`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Checkbox checked={checked} onCheckedChange={() => toggleCourse(course.id)} />
+                        {course.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {suggested != null ? `K${suggested.toLocaleString()}` : "-"}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
           </div>
 
-          {selectedStudent && selectedCourse && (
-            <div className="rounded-[1.35rem] border border-border/70 bg-white/72 p-4 text-sm shadow-[var(--shadow-soft)]">
-              Suggested fee for{" "}
-              <strong>{selectedStudent.category === "unza" ? "UNZA" : "Non-UNZA"}</strong> student:{" "}
-              <strong>{suggestedFee != null ? `K${suggestedFee.toLocaleString()}` : "-"}</strong>
+          {courseIds.size > 0 && (
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Fee overrides (optional, ZMW)</Label>
+              <div className="max-h-40 space-y-2 overflow-y-auto">
+                {[...courseIds].map((id) => {
+                  const course = courseList.find((c: any) => c.id === id);
+                  if (!course) return null;
+                  const suggested = suggestedFeeFor(course);
+                  return (
+                    <div key={id} className="flex items-center gap-2">
+                      <span className="flex-1 truncate text-xs text-muted-foreground">{course.name}</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={suggested != null ? String(suggested) : "0.00"}
+                        value={feeOverrides[id] ?? ""}
+                        onChange={(e) => setFeeOverrides((prev) => ({ ...prev, [id]: e.target.value }))}
+                        className="h-8 w-28"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total: <strong>K{totalFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+              </p>
             </div>
           )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="fee" className="text-sm font-semibold">Fee charged (ZMW)</Label>
-              <Input
-                id="fee"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder={suggestedFee != null ? String(suggestedFee) : "0.00"}
-                value={overrideFee}
-                onChange={(e) => setOverrideFee(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Payment status</Label>
-              <Select value={paymentStatus} onValueChange={(v) => setPaymentStatus(v as PaymentStatus)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="waived">Waived</SelectItem>
-                  <SelectItem value="free">Free</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Payment status</Label>
+            <Select value={paymentStatus} onValueChange={(v) => setPaymentStatus(v as PaymentStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="waived">Waived</SelectItem>
+                <SelectItem value="free">Free</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Applied to every selected course (a K0 fee is always marked free).</p>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Enrol student"}</Button>
+            <Button type="submit" disabled={busy}>
+              {busy
+                ? "Enrolling..."
+                : courseIds.size > 0
+                  ? `Enrol in ${courseIds.size} course${courseIds.size === 1 ? "" : "s"}`
+                  : "Enrol student"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
