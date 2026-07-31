@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Award, Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -320,12 +320,15 @@ function EnrolRow({
     try {
       const [cert] = await Promise.all([
         generateCertificateServer({ data: { enrolmentId: enrolment.id } }),
-        import("@/lib/branding").then(({ loadBranding }) => loadBranding().catch(() => null)),
         import("@/lib/font-loader").then(({ preloadCustomFonts }) => preloadCustomFonts()),
       ]);
+      await import("@/lib/branding").then(({ loadBranding }) =>
+        loadBranding(cert.certificate_type).catch(() => null),
+      );
       const { uploadCertificatePdf } = await import("@/lib/pdf");
       await uploadCertificatePdf({
         certificateId: cert.certificate_code,
+        certificateType: cert.certificate_type,
         recipientName: enrolment.student.full_name,
         programme: enrolment.course.name,
         issueDate: new Date().toISOString().slice(0, 10),
@@ -506,17 +509,25 @@ function StudentCombobox({
   );
 }
 
-function EnrolDialog({ onSaved }: { onSaved: () => void }) {
+export function EnrolDialog({
+  onSaved,
+  presetStudent,
+  trigger,
+}: {
+  onSaved: () => void;
+  presetStudent?: { id: string; full_name: string; category: string };
+  trigger?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [studentId, setStudent] = useState("");
+  const [studentId, setStudent] = useState(presetStudent?.id ?? "");
   const [courseId, setCourse] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("pending");
   const [overrideFee, setOverrideFee] = useState<string>("");
 
   const students = useQuery({
     queryKey: ["enrol-students"],
-    enabled: open,
+    enabled: open && !presetStudent,
     queryFn: async () => {
       const data = await apiGet<{ id: string; full_name: string; category: string }[]>("/students");
       return [...data].sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -534,7 +545,7 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
     },
   });
 
-  const selectedStudent = (students.data ?? []).find((s: any) => s.id === studentId);
+  const selectedStudent = presetStudent ?? (students.data ?? []).find((s: any) => s.id === studentId);
   const selectedCourse = (courses.data ?? []).find((c: any) => c.id === courseId);
   const suggestedFee: number | null =
     selectedStudent && selectedCourse
@@ -559,7 +570,7 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
         payment_status: autoPaymentStatus,
       });
       toast.success("Enrolment created");
-      setStudent("");
+      setStudent(presetStudent?.id ?? "");
       setCourse("");
       setOverrideFee("");
       setPaymentStatus("pending");
@@ -575,10 +586,12 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-1 h-4 w-4" />
-          New enrolment
-        </Button>
+        {trigger ?? (
+          <Button>
+            <Plus className="mr-1 h-4 w-4" />
+            New enrolment
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -591,11 +604,20 @@ function EnrolDialog({ onSaved }: { onSaved: () => void }) {
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-2">
             <Label className="text-sm font-semibold">Student</Label>
-            <StudentCombobox
-              students={students.data ?? []}
-              value={studentId}
-              onChange={setStudent}
-            />
+            {presetStudent ? (
+              <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                {presetStudent.full_name}
+                <Badge variant={presetStudent.category === "unza" ? "secondary" : "outline"}>
+                  {presetStudent.category === "unza" ? "UNZA" : "Non-UNZA"}
+                </Badge>
+              </div>
+            ) : (
+              <StudentCombobox
+                students={students.data ?? []}
+                value={studentId}
+                onChange={setStudent}
+              />
+            )}
           </div>
 
           <div className="space-y-2">

@@ -1,10 +1,17 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, RefreshCw, RotateCcw } from "lucide-react";
+import { Trash2, RefreshCw, RotateCcw, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   SEAL_PATH,
   SIGNATURE_PATH,
@@ -15,7 +22,9 @@ import {
   clearBrandingCache,
   loadBranding,
   saveTemplateLayout,
+  saveSignatories,
 } from "@/lib/branding";
+import { CERTIFICATE_TYPES, DEFAULT_CERTIFICATE_TYPE, type CertificateTypeValue } from "@/lib/certificate-types";
 import { buildIllustratorPayload, downloadIllustratorPayload } from "@/lib/illustrator-handoff";
 import { isPdfCompatibleIllustratorFile, renderPdfBlobPageToDataUrl } from "@/lib/pdf-like";
 import { DEFAULT_LAYOUT, SVG_SAMPLE_LAYOUT, toQrOnlyLayout } from "@/lib/template-layout";
@@ -293,6 +302,7 @@ async function convertPdfLikeToPng(file: File, targetW: number, targetH: number)
 }
 
 export function BrandingTab() {
+  const [certificateType, setCertificateType] = useState<CertificateTypeValue>(DEFAULT_CERTIFICATE_TYPE);
   const [exportingIllustratorPayload, setExportingIllustratorPayload] = useState(false);
   const [resettingLayout, setResettingLayout] = useState(false);
   const [editorRefresh, setEditorRefresh] = useState({
@@ -304,8 +314,8 @@ export function BrandingTab() {
     if (!window.confirm("Reset all field positions to the defaults? This cannot be undone.")) return;
     setResettingLayout(true);
     try {
-      await saveTemplateLayout(DEFAULT_LAYOUT);
-      clearBrandingCache();
+      await saveTemplateLayout(DEFAULT_LAYOUT, certificateType);
+      clearBrandingCache(certificateType);
       setEditorRefresh((current) => ({ token: current.token + 1, includeLayout: true }));
       toast.success("Field positions reset to defaults");
     } catch (err: any) {
@@ -318,7 +328,7 @@ export function BrandingTab() {
   async function onDownloadIllustratorPayload() {
     setExportingIllustratorPayload(true);
     try {
-      const branding = await loadBranding();
+      const branding = await loadBranding(certificateType);
       const payload = buildIllustratorPayload(branding.settings);
       downloadIllustratorPayload(payload);
       toast.success("Illustrator payload downloaded");
@@ -338,16 +348,37 @@ export function BrandingTab() {
           backgrounds now stay editable inside the browser template editor, and the uploaded
           digital seal is reused automatically in the Digital seal field during certificate export.
           PDF-compatible Illustrator backgrounds are still stored as-is and rendered from page 1
-          when the app needs a preview or certificate export. Edit the signatory names and titles
-          from the <span className="font-medium">Settings</span> tab.
+          when the app needs a preview or certificate export.
         </p>
+      </div>
+
+      <div className="surface-panel rounded-xl p-5">
+        <Label className="text-base">Certificate type</Label>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Each certificate type has its own fully independent background, seal, signatures, and
+          field layout. Pick a type below to edit its template — courses are assigned a type in the
+          Courses tab, and every certificate generated from that course uses this template.
+        </p>
+        <Select value={certificateType} onValueChange={(v) => setCertificateType(v as CertificateTypeValue)}>
+          <SelectTrigger className="mt-3 w-full sm:w-[320px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CERTIFICATE_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {SLOTS.map((slot) => (
           <BrandingSlot
-            key={slot.path}
+            key={`${certificateType}:${slot.path}`}
             {...slot}
+            certificateType={certificateType}
             onAssetChanged={(includeLayout = false) =>
               setEditorRefresh((current) => ({
                 token: current.token + 1,
@@ -357,6 +388,8 @@ export function BrandingTab() {
           />
         ))}
       </div>
+
+      <SignatoriesPanel certificateType={certificateType} />
 
       <div className="surface-panel rounded-xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -414,6 +447,7 @@ export function BrandingTab() {
           <TemplateEditor
             refreshToken={editorRefresh.token}
             refreshIncludesLayout={editorRefresh.includeLayout}
+            certificateType={certificateType}
           />
         </Suspense>
       </div>
@@ -429,6 +463,7 @@ function BrandingSlot({
   svgTarget,
   fillBackground = false,
   sampleAsset,
+  certificateType,
   onAssetChanged,
 }: {
   path: string;
@@ -438,6 +473,7 @@ function BrandingSlot({
   svgTarget?: [number, number];
   fillBackground?: boolean;
   sampleAsset?: string;
+  certificateType: CertificateTypeValue;
   onAssetChanged?: (includeLayout?: boolean) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -451,7 +487,7 @@ function BrandingSlot({
 
     (async () => {
       try {
-        const branding = await loadBranding();
+        const branding = await loadBranding(certificateType);
 
         if (isTemplateBackground(path)) {
           let nextPreview = branding.templateBgDataUrl;
@@ -489,7 +525,7 @@ function BrandingSlot({
     return () => {
       cancelled = true;
     };
-  }, [path, stamp]);
+  }, [path, stamp, certificateType]);
 
   async function uploadAsset(file: File) {
     if (isEpsFile(file)) {
@@ -559,16 +595,16 @@ function BrandingSlot({
       throw new Error("File too large (max 10 MB)");
     }
 
-    await uploadBrandingFile(path, uploadFile);
+    await uploadBrandingFile(path, uploadFile, certificateType);
 
     if (isTemplateBackground(path)) {
       if (isSvgFile(file)) {
         // SVG with {{...}} bindings renders its own text — only QR/seal/signature overlays needed
-        const branding = await loadBranding().catch(() => null);
-        await saveTemplateLayout(toQrOnlyLayout(branding?.layout));
+        const branding = await loadBranding(certificateType).catch(() => null);
+        await saveTemplateLayout(toQrOnlyLayout(branding?.layout), certificateType);
       } else {
         // PDF / raster background: overlay all dynamic fields (name, NRC, programme, date, etc.)
-        await saveTemplateLayout(DEFAULT_LAYOUT);
+        await saveTemplateLayout(DEFAULT_LAYOUT, certificateType);
       }
     }
   }
@@ -616,8 +652,8 @@ function BrandingSlot({
       if (isTemplateBackground(path)) {
         // SVG sample carries all text via {{...}} bindings — use the SVG-aware
         // layout so text fields don't double-render on top of the SVG text.
-        await saveTemplateLayout(SVG_SAMPLE_LAYOUT);
-        clearBrandingCache();
+        await saveTemplateLayout(SVG_SAMPLE_LAYOUT, certificateType);
+        clearBrandingCache(certificateType);
       }
       toast.success("Sample certificate template applied with editable fields");
       setStamp((value) => value + 1);
@@ -634,9 +670,9 @@ function BrandingSlot({
 
     setBusy(true);
     try {
-      await deleteBrandingFile(path);
+      await deleteBrandingFile(path, certificateType);
       setPreviewUrl(null);
-      clearBrandingCache();
+      clearBrandingCache(certificateType);
       toast.success("Removed");
       onAssetChanged?.(isTemplateBackground(path));
     } catch (error: any) {
@@ -705,6 +741,94 @@ function BrandingSlot({
           <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+function SignatoriesPanel({ certificateType }: { certificateType: CertificateTypeValue }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [s, setS] = useState({
+    signatory1_name: "",
+    signatory1_title: "",
+    signatory2_name: "",
+    signatory2_title: "",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadBranding(certificateType)
+      .then((branding) => {
+        if (cancelled) return;
+        setS({
+          signatory1_name: branding.settings.signatory1_name,
+          signatory1_title: branding.settings.signatory1_title,
+          signatory2_name: branding.settings.signatory2_name,
+          signatory2_title: branding.settings.signatory2_title,
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [certificateType]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await saveSignatories(s, certificateType);
+      toast.success("Signatories saved");
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed to save signatories");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="surface-panel rounded-xl p-5 space-y-4">
+      <div>
+        <Label className="text-base">Signatories</Label>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Independent for this certificate type only — switch the type above to edit another.
+        </p>
+      </div>
+      {loading ? (
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-3">
+              <h3 className="font-medium text-sm">Signatory #1 (left)</h3>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Name</Label>
+                <Input value={s.signatory1_name} onChange={(e) => setS({ ...s, signatory1_name: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Title</Label>
+                <Input value={s.signatory1_title} onChange={(e) => setS({ ...s, signatory1_title: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h3 className="font-medium text-sm">Signatory #2 (right)</h3>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Name</Label>
+                <Input value={s.signatory2_name} onChange={(e) => setS({ ...s, signatory2_name: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Title</Label>
+                <Input value={s.signatory2_title} onChange={(e) => setS({ ...s, signatory2_title: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <Button onClick={save} disabled={saving}>
+            <Save className="mr-1 h-4 w-4" /> {saving ? "Saving..." : "Save signatories"}
+          </Button>
+        </>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ interface CertInput {
   issue_date?: string;
   issuer_name?: string | null;
   national_id?: string | null;
+  certificate_type?: string | null;
 }
 
 function apiBase(): string {
@@ -32,6 +33,7 @@ async function ensurePdfUploaded(cert: CertInput): Promise<void> {
 
   const blob = await generateCertificatePdf({
     certificateId: code,
+    certificateType: (cert.certificate_type as any) ?? undefined,
     recipientName: cert.recipient_name ?? 'Student',
     programme: cert.programme ?? 'your programme',
     issueDate: cert.issue_date ?? new Date().toISOString().split('T')[0],

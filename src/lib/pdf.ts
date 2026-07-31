@@ -13,6 +13,7 @@ import {
 } from "./template-layout";
 import { registerCustomFontsInDoc, preloadCustomFonts } from "./font-loader";
 import { applyDynamicSvgTextBindings } from "./svg-template";
+import { DEFAULT_CERTIFICATE_TYPE, type CertificateTypeValue } from "./certificate-types";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 export interface CertificateInput {
@@ -22,6 +23,7 @@ export interface CertificateInput {
   issueDate: string; // YYYY-MM-DD
   issuerName?: string; // back-compat; unused
   nrcNumber?: string;
+  certificateType?: CertificateTypeValue; // defaults to "competence"
 }
 
 async function fetchAsDataUrl(url: string): Promise<string | null> {
@@ -349,7 +351,7 @@ export async function generateCertificatePdf(cert: CertificateInput): Promise<Bl
 
   // Branding fetch and font cache warm-up run in parallel — biggest speed win on cold load
   const [branding] = await Promise.all([
-    loadBranding().catch(() => null),
+    loadBranding(cert.certificateType ?? DEFAULT_CERTIFICATE_TYPE).catch(() => null),
     preloadCustomFonts(),
   ]);
 

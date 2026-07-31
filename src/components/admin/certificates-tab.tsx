@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Loader2,
   Mail,
+  Pencil,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -18,6 +19,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -51,6 +62,7 @@ type Cert = {
   email_sent_at: string | null;
   created_at: string;
   national_id?: string | null;
+  certificate_type?: string;
 };
 
 export function CertificatesTab() {
@@ -186,6 +198,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
     const { downloadCertificatePdf } = await import("@/lib/pdf");
     await downloadCertificatePdf({
       certificateId: certificateCode,
+      certificateType: cert.certificate_type as any,
       recipientName: cert.recipient_name,
       programme: cert.programme,
       issueDate: cert.issue_date,
@@ -308,6 +321,7 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
           <Button size="sm" variant="outline" onClick={download} title="Download PDF">
             <Download className="h-4 w-4" />
           </Button>
+          <EditCertificateDialog cert={cert} onSaved={onChange} />
           <Button
             size="sm"
             variant="outline"
@@ -345,5 +359,147 @@ function CertRow({ cert, onChange }: { cert: Cert; onChange: () => void }) {
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+function EditCertificateDialog({ cert, onSaved }: { cert: Cert; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [recipientName, setRecipientName] = useState(cert.recipient_name);
+  const [recipientEmail, setRecipientEmail] = useState(cert.recipient_email ?? "");
+  const [programme, setProgramme] = useState(cert.programme);
+  const [nationalId, setNationalId] = useState(cert.national_id ?? "");
+  const [issueDate, setIssueDate] = useState(cert.issue_date);
+
+  function resetToCert() {
+    setRecipientName(cert.recipient_name);
+    setRecipientEmail(cert.recipient_email ?? "");
+    setProgramme(cert.programme);
+    setNationalId(cert.national_id ?? "");
+    setIssueDate(cert.issue_date);
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!recipientName.trim() || !programme.trim()) {
+      toast.error("Recipient name and programme are required");
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiPatch(`/certificates/${cert.id}`, {
+        recipient_name: recipientName.trim(),
+        recipient_email: recipientEmail.trim() || null,
+        programme: programme.trim(),
+        national_id: nationalId.trim() || null,
+        issue_date: issueDate,
+      });
+
+      // Re-render the PDF with the corrected data and replace the stored file,
+      // so the downloaded/emailed certificate reflects the fix too.
+      const certificateCode = getCertificateCode(cert);
+      const { uploadCertificatePdf } = await import("@/lib/pdf");
+      await uploadCertificatePdf({
+        certificateId: certificateCode,
+        certificateType: cert.certificate_type as any,
+        recipientName: recipientName.trim(),
+        programme: programme.trim(),
+        issueDate,
+        issuerName: cert.issuer_name,
+        nrcNumber: nationalId.trim() || undefined,
+      });
+
+      toast.success("Certificate updated and PDF regenerated");
+      onSaved();
+      setOpen(false);
+    } catch (error: any) {
+      toast.error(error.message ?? "Failed to update certificate");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) resetToCert();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" title="Edit certificate">
+          <Pencil className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit certificate</DialogTitle>
+          <DialogDescription>
+            Corrects a data-entry mistake (e.g. NRC entered as a computer number, a misspelled
+            name) without deleting and regenerating the certificate. The PDF is re-rendered and
+            replaced on save.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-cert-name">Recipient name</Label>
+            <Input
+              id="edit-cert-name"
+              required
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-cert-email">Recipient email</Label>
+            <Input
+              id="edit-cert-email"
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-cert-programme">Programme</Label>
+            <Input
+              id="edit-cert-programme"
+              required
+              value={programme}
+              onChange={(e) => setProgramme(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-cert-nrc">NRC number</Label>
+              <Input
+                id="edit-cert-nrc"
+                value={nationalId}
+                onChange={(e) => setNationalId(e.target.value)}
+                placeholder="e.g. 123456/78/1"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-cert-date">Issue date</Label>
+              <Input
+                id="edit-cert-date"
+                type="date"
+                required
+                value={issueDate}
+                onChange={(e) => setIssueDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Saving..." : "Save and regenerate PDF"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

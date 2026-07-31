@@ -4,6 +4,7 @@ import {
   Award,
   ChevronDown,
   ChevronRight,
+  GraduationCap,
   Pencil,
   Plus,
   Search,
@@ -41,7 +42,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { toTitleCaseName } from "@/lib/text";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -50,6 +53,7 @@ import {
   AdminStat,
 } from "@/components/admin/admin-ui";
 import { CsvImportDialog } from "@/components/admin/csv-import-dialog";
+import { EnrolDialog } from "@/components/admin/enrolments-tab";
 
 type StudentCategory = "unza" | "non_unza";
 type Student = {
@@ -72,7 +76,7 @@ type StudentEnrolment = {
   status: EnrolmentStatus;
   enrolled_at: string;
   completed_at: string | null;
-  certificate_id: string | null;
+  certificate: { id: string; certificate_code: string | null } | null;
   fee_charged: number | null;
   payment_status: PaymentStatus;
   course: { id: string; name: string; prefix: string } | null;
@@ -120,6 +124,8 @@ export function StudentsTab() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"all" | StudentCategory>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const students = useQuery({
     queryKey: ["admin-students"],
@@ -142,12 +148,51 @@ export function StudentsTab() {
     );
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-students"] });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-students"] });
+    setSelectedIds(new Set());
+  };
   const counts = {
     total:   fullList.length,
     unza:    fullList.filter((student) => student.category === "unza").length,
     nonUnza: fullList.filter((student) => student.category === "non_unza").length,
   };
+
+  const allSelected = filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id));
+  function toggleSelectAll() {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map((s) => s.id)));
+  }
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} selected student(s)? Their enrolments will also be removed.`)) return;
+    setBulkBusy(true);
+    let ok = 0;
+    let fail = 0;
+    for (const id of selectedIds) {
+      const student = fullList.find((s) => s.id === id);
+      try {
+        await logAccess("delete", id, student?.full_name);
+        await apiDelete(`/students/${id}`);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    setBulkBusy(false);
+    if (ok > 0) toast.success(`Deleted ${ok} student${ok !== 1 ? "s" : ""}`);
+    if (fail > 0) toast.error(`${fail} failed to delete`);
+    refresh();
+  }
 
   return (
     <div className="space-y-8">
@@ -209,6 +254,19 @@ export function StudentsTab() {
           </div>
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-3 sm:px-6">
+            <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+            <Button size="sm" variant="destructive" disabled={bulkBusy} onClick={bulkDelete}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              {bulkBusy ? "Deleting..." : "Delete selected"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        )}
+
         <div className="px-5 py-5 sm:px-6">
           {students.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading students...</div>
@@ -225,6 +283,9 @@ export function StudentsTab() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label="Select all" />
+                  </TableHead>
                   <TableHead className="w-8" />
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
@@ -236,7 +297,13 @@ export function StudentsTab() {
               </TableHeader>
               <TableBody>
                 {filtered.map((student) => (
-                  <StudentRow key={student.id} student={student} onChange={refresh} />
+                  <StudentRow
+                    key={student.id}
+                    student={student}
+                    onChange={refresh}
+                    selected={selectedIds.has(student.id)}
+                    onToggleSelect={() => toggleOne(student.id)}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -247,8 +314,19 @@ export function StudentsTab() {
   );
 }
 
-function StudentRow({ student, onChange }: { student: Student; onChange: () => void }) {
+function StudentRow({
+  student,
+  onChange,
+  selected,
+  onToggleSelect,
+}: {
+  student: Student;
+  onChange: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const queryClient = useQueryClient();
 
   const enrolments = useQuery({
     queryKey: ["student-enrolments", student.id],
@@ -258,6 +336,11 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
       return apiGet<StudentEnrolment[]>(`/enrolments?studentId=${student.id}`);
     },
   });
+
+  function onEnrolled() {
+    queryClient.invalidateQueries({ queryKey: ["student-enrolments", student.id] });
+    onChange();
+  }
 
   async function remove() {
     if (!window.confirm(`Delete ${student.full_name}? Their enrolments will also be removed.`)) return;
@@ -280,6 +363,9 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
         className="cursor-pointer"
         onClick={() => setExpanded((current) => !current)}
       >
+        <TableCell onClick={(event) => event.stopPropagation()}>
+          <Checkbox checked={selected} onCheckedChange={onToggleSelect} aria-label="Select row" />
+        </TableCell>
         <TableCell className="pr-0">
           {expanded
             ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -319,14 +405,25 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
 
       {expanded ? (
         <TableRow className="bg-primary/[0.03] hover:bg-primary/[0.03]">
-          <TableCell colSpan={7} className="pb-5 pt-1">
+          <TableCell colSpan={8} className="pb-5 pt-1">
             <div className="rounded-[1.35rem] border border-border/70 bg-white/72 p-5 shadow-[var(--shadow-soft)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-foreground">Course history</p>
+                <EnrolDialog
+                  onSaved={onEnrolled}
+                  presetStudent={student}
+                  trigger={
+                    <Button size="sm" variant="outline">
+                      <GraduationCap className="mr-1 h-4 w-4" /> Enrol in a course
+                    </Button>
+                  }
+                />
+              </div>
               {enrolments.isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading course history...</p>
               ) : !enrolments.data || enrolments.data.length === 0 ? (
                 <p className="text-sm leading-6 text-muted-foreground">
-                  This student has no enrolments yet. Use the <strong>Enrolments</strong>{" "}
-                  workspace to add one.
+                  This student has no enrolments yet — use the button above to enrol them.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -364,7 +461,7 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => v
                             </span>
                           </td>
                           <td className="py-3">
-                            {enrolment.status === "certified" && enrolment.certificate_id ? (
+                            {enrolment.status === "certified" && enrolment.certificate ? (
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
                                 <Award className="h-3.5 w-3.5" /> Issued
                               </span>
@@ -428,7 +525,7 @@ function StudentDialog({
       }
 
       const payload = {
-        full_name: fullName.trim(),
+        full_name: toTitleCaseName(fullName),
         email: email.trim() || null,
         phone: phone.trim() || null,
         category,

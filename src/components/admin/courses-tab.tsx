@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { CERTIFICATE_TYPES, certificateTypeLabel, type CertificateTypeValue } from "@/lib/certificate-types";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -63,6 +64,7 @@ type Course = {
   duration_text: string | null;
   active: boolean;
   category: CourseCategory;
+  certificate_type: CertificateTypeValue;
   fee_unza: number | null;
   fee_non_unza: number | null;
   start_date: string | null;
@@ -180,6 +182,7 @@ export function CoursesTab() {
                   <TableHead>Category</TableHead>
                   <TableHead>Code / Prefix</TableHead>
                   <TableHead>Schedule</TableHead>
+                  <TableHead>Certificate</TableHead>
                   <TableHead className="text-right">Fee UNZA</TableHead>
                   <TableHead className="text-right">Fee Non-UNZA</TableHead>
                   <TableHead>Status</TableHead>
@@ -238,6 +241,9 @@ function CourseRow({ course, onChange }: { course: Course; onChange: () => void 
         <div>{course.start_date ? new Date(course.start_date).toLocaleDateString() : "-"}</div>
         <div className="mt-1">{course.time_slot ?? course.duration_text ?? "-"}</div>
       </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {certificateTypeLabel(course.certificate_type)}
+      </TableCell>
       <TableCell className="text-right font-mono text-xs">{fmtZmw(course.fee_unza)}</TableCell>
       <TableCell className="text-right font-mono text-xs">{fmtZmw(course.fee_non_unza)}</TableCell>
       <TableCell>
@@ -283,6 +289,9 @@ function CourseDialog({
   const [category, setCategory] = useState<CourseCategory>(
     course?.category ?? "short_course",
   );
+  const [certificateType, setCertificateType] = useState<CertificateTypeValue>(
+    course?.certificate_type ?? "competence",
+  );
   const [mode, setMode] = useState<NonNullable<CourseMode> | "none">(
     (course?.mode ?? "none") as NonNullable<CourseMode> | "none",
   );
@@ -327,6 +336,7 @@ function CourseDialog({
         duration_text: durationText.trim() || null,
         active,
         category,
+        certificate_type: certificateType,
         mode: mode === "none" ? null : mode,
         fee_unza: parseFee(feeUnza),
         fee_non_unza: parseFee(feeNonUnza),
@@ -410,6 +420,31 @@ function CourseDialog({
               </Select>
             </Field>
           </div>
+
+          <Field
+            label="Certificate type"
+            htmlFor="course-certificate-type"
+          >
+            <Select
+              value={certificateType}
+              onValueChange={(value) => setCertificateType(value as CertificateTypeValue)}
+            >
+              <SelectTrigger id="course-certificate-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CERTIFICATE_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Determines which uploaded template (background, seal, signatures, layout) is used
+              when a certificate is generated from this course — manage templates in the Branding tab.
+            </p>
+          </Field>
 
           <Field label="Name" htmlFor="course-name">
             <Input

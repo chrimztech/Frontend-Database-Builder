@@ -12,6 +12,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
+import { toTitleCaseName } from "@/lib/text";
+import { findBestCourseMatch, type CourseMatchCandidate, type MatchConfidence } from "@/lib/fuzzy-match";
 
 type PaymentStatus = "pending" | "paid" | "waived" | "free";
 type StudentCategory = "unza" | "non_unza";
@@ -25,6 +27,8 @@ type CsvRow = {
   category: StudentCategory;
   unza_student_id: string;
   course: string;
+  course_match_id: string | null;
+  course_match_confidence: MatchConfidence;
   payment_status: PaymentStatus;
   fee_charged: number | null;
   errors: string[];
@@ -100,8 +104,10 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [rows, setRows] = useState<CsvRow[]>([]);
+  const [courses, setCourses] = useState<CourseMatchCandidate[]>([]);
   const [results, setResults] = useState<ImportResult[]>([]);
   const [busy, setBusy] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -123,16 +129,20 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
 
   function handleFile(file: File) {
     const reader = new FileReader();
-    reader.onload = (e) => parseFile((e.target?.result as string) ?? "");
+    reader.onload = (e) => void parseFile((e.target?.result as string) ?? "");
     reader.readAsText(file, "utf-8");
   }
 
-  function parseFile(text: string) {
+  async function parseFile(text: string) {
     const raw = parseCSV(text.trim());
     if (raw.length < 2) {
       toast.error("CSV must have a header row and at least one data row.");
       return;
     }
+
+    setParsing(true);
+    const availableCourses = await apiGet<CourseMatchCandidate[]>("/courses?active=true").catch(() => []);
+    setCourses(availableCourses);
 
     const headers = raw[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
     const idx = (name: string) => headers.indexOf(name);
@@ -141,12 +151,14 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
       const get = (name: string) => (cells[idx(name)] ?? "").trim();
       const errors: string[] = [];
 
-      const full_name = get("full_name");
+      const full_name = toTitleCaseName(get("full_name"));
       const national_id = get("national_id");
       const category = toCategory(get("category"));
       const payment_status = toPayment(get("payment_status"));
       const feeRaw = get("fee_charged");
       const fee_charged = feeRaw ? parseFloat(feeRaw) : null;
+      const course = get("course") || get("course_name") || get("course_prefix");
+      const { course: matchedCourse, confidence } = findBestCourseMatch(course, availableCourses);
 
       if (!full_name) errors.push("full_name required");
       if (!national_id) errors.push("national_id required");
@@ -161,7 +173,9 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
         national_id,
         category,
         unza_student_id: get("unza_student_id"),
-        course: get("course") || get("course_name") || get("course_prefix"),
+        course,
+        course_match_id: matchedCourse?.id ?? null,
+        course_match_confidence: confidence,
         payment_status,
         fee_charged: feeRaw && !isNaN(fee_charged as number) ? (fee_charged as number) : null,
         errors,
@@ -169,22 +183,13 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
     });
 
     setRows(parsed);
+    setParsing(false);
     setStep("preview");
   }
 
   async function runImport() {
     setBusy(true);
     const out: ImportResult[] = [];
-
-    // Load all courses once for name/prefix matching
-    const courses = await apiGet<{ id: string; name: string; prefix: string }[]>("/courses").catch(() => []);
-    const findCourse = (name: string) => {
-      if (!name) return null;
-      const lo = name.toLowerCase();
-      return courses.find(
-        (c) => c.name.toLowerCase() === lo || c.prefix.toLowerCase() === lo,
-      ) ?? null;
-    };
 
     for (const row of rows.filter((r) => r.errors.length === 0)) {
       try {
@@ -220,10 +225,10 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
           }).catch(() => {});
         }
 
-        // Auto-enrol if course specified and payment qualifies
+        // Auto-enrol if a course was matched/selected and payment qualifies
         let enrolled = false;
         let courseName = "";
-        const course = findCourse(row.course);
+        const course = courses.find((c) => c.id === row.course_match_id) ?? null;
 
         if (course && studentId && QUALIFIES_FOR_ENROLMENT.includes(row.payment_status)) {
           courseName = course.name;
@@ -286,15 +291,19 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                 if (f) handleFile(f);
               }}
             >
-              <FileText className="mx-auto h-10 w-10 text-muted-foreground" />
+              {parsing ? (
+                <Loader2 className="mx-auto h-10 w-10 animate-spin text-muted-foreground" />
+              ) : (
+                <FileText className="mx-auto h-10 w-10 text-muted-foreground" />
+              )}
               <p className="mt-3 text-sm font-semibold text-foreground">
-                Drop a CSV file here, or click to browse
+                {parsing ? "Matching courses…" : "Drop a CSV file here, or click to browse"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Required columns: <code className="text-primary">full_name</code>,{" "}
                 <code className="text-primary">national_id</code>
               </p>
-              <Button size="sm" className="mt-4 pointer-events-none">
+              <Button size="sm" className="mt-4 pointer-events-none" disabled={parsing}>
                 <Upload className="mr-1 h-4 w-4" /> Choose file
               </Button>
               <input
@@ -302,6 +311,7 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                 type="file"
                 accept=".csv,text/csv"
                 className="hidden"
+                disabled={parsing}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />
             </div>
@@ -358,6 +368,14 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
               </Button>
             </div>
 
+            {rows.some((r) => r.course.trim() && r.course_match_confidence !== "exact") && (
+              <p className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Some course names in the CSV didn't match exactly (capitalization, abbreviations,
+                etc.) — the closest match is pre-selected below. Review and adjust the{" "}
+                <strong>Matched course</strong> column before importing.
+              </p>
+            )}
+
             <div className="overflow-x-auto rounded-xl border border-border/70">
               <table className="w-full text-xs">
                 <thead className="bg-muted/50 text-[10px] uppercase tracking-[0.16em]">
@@ -366,7 +384,8 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                     <th className="p-2 text-left">Name</th>
                     <th className="p-2 text-left">NRC</th>
                     <th className="p-2 text-left">Category</th>
-                    <th className="p-2 text-left">Course</th>
+                    <th className="p-2 text-left">CSV course text</th>
+                    <th className="p-2 text-left">Matched course</th>
                     <th className="p-2 text-left">Payment</th>
                     <th className="p-2 text-left">Status</th>
                   </tr>
@@ -386,6 +405,43 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                       </td>
                       <td className="p-2">{row.category}</td>
                       <td className="p-2 text-muted-foreground">{row.course || "—"}</td>
+                      <td className="p-2">
+                        {row.course.trim() ? (
+                          <select
+                            className="rounded border border-border bg-background px-1.5 py-1 text-xs"
+                            value={row.course_match_id ?? ""}
+                            onChange={(e) => {
+                              const value = e.target.value || null;
+                              setRows((prev) =>
+                                prev.map((r) =>
+                                  r.lineNo === row.lineNo
+                                    ? { ...r, course_match_id: value, course_match_confidence: "exact" }
+                                    : r,
+                                ),
+                              );
+                            }}
+                          >
+                            <option value="">No enrolment</option>
+                            {courses.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                        {row.course.trim() && row.course_match_confidence === "fuzzy" && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                            closest match
+                          </span>
+                        )}
+                        {row.course.trim() && row.course_match_confidence === "none" && !row.course_match_id && (
+                          <span className="ml-1.5 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                            no match found
+                          </span>
+                        )}
+                      </td>
                       <td className="p-2">{row.payment_status}</td>
                       <td className="p-2">
                         {row.errors.length === 0 ? (

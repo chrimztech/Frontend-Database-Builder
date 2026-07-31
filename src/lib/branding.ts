@@ -1,16 +1,28 @@
 // Helpers to load branding assets + org settings used by the PDF generator.
 // Branding files are served by the Spring Boot backend's BrandingController
-// (filesystem-backed, ./branding-assets on the server); org settings by
-// SettingsController / the org_settings table.
+// (filesystem-backed, ./branding-assets on the server), one fully independent
+// set per certificate type — asset filenames are prefixed with the type
+// (e.g. "advanced_diploma__seal.png"). Signatories + layout come from
+// CertificateTemplateController (one row per type); org name/prefix stay
+// global via SettingsController.
 import { blobToDataUrl, isPdfMimeType, readSvgMarkupFromBlob } from "./pdf-like";
 import { ensureLayout, type TemplateLayout } from "./template-layout";
 import { apiGet, apiPut, apiUpload, apiDelete, getToken } from "./api";
+import { DEFAULT_CERTIFICATE_TYPE, type CertificateTypeValue } from "./certificate-types";
 
-export const BRANDING_BUCKET = "branding";
-export const SEAL_PATH = "seal.png";
-export const SIGNATURE_PATH = "signature.png"; // signatory #1
-export const SIGNATURE2_PATH = "signature2.png"; // signatory #2
-export const TEMPLATE_BG_PATH = "template-background.png";
+const SEAL_FILE = "seal.png";
+const SIGNATURE_FILE = "signature.png"; // signatory #1
+const SIGNATURE2_FILE = "signature2.png"; // signatory #2
+const TEMPLATE_BG_FILE = "template-background.png";
+
+/** Type-prefixed storage filename, e.g. "advanced_diploma__seal.png". */
+export function brandingFileName(certificateType: CertificateTypeValue, file: string): string {
+  return `${certificateType}__${file}`;
+}
+export const SEAL_PATH = SEAL_FILE;
+export const SIGNATURE_PATH = SIGNATURE_FILE;
+export const SIGNATURE2_PATH = SIGNATURE2_FILE;
+export const TEMPLATE_BG_PATH = TEMPLATE_BG_FILE;
 
 const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080/api") as string;
 
@@ -18,9 +30,9 @@ async function listBrandingFiles(): Promise<{ name: string; size: number }[]> {
   return apiGet<{ name: string; size: number }[]>("/branding");
 }
 
-async function downloadBlob(path: string): Promise<Blob | null> {
+async function downloadBlob(storedName: string): Promise<Blob | null> {
   const token = getToken();
-  const res = await fetch(`${BASE}/branding/${encodeURIComponent(path)}`, {
+  const res = await fetch(`${BASE}/branding/${encodeURIComponent(storedName)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;
@@ -58,25 +70,39 @@ const DEFAULT_SETTINGS: OrgSettings = {
   signatory2_title: "Programme Lead",
 };
 
-const TTL = 5 * 60_000; // 5 minutes
-let cache: { at: number; assets: BrandingAssets } | null = null;
-let pendingLoad: Promise<BrandingAssets> | null = null;
+type CertificateTemplateRow = {
+  certificate_type: CertificateTypeValue;
+  signatory1_name: string;
+  signatory1_title: string;
+  signatory2_name: string;
+  signatory2_title: string;
+  template_layout?: unknown;
+};
 
-async function loadBrandingFresh(): Promise<BrandingAssets> {
+const TTL = 5 * 60_000; // 5 minutes
+const cache = new Map<CertificateTypeValue, { at: number; assets: BrandingAssets }>();
+const pendingLoad = new Map<CertificateTypeValue, Promise<BrandingAssets>>();
+
+async function loadBrandingFresh(certificateType: CertificateTypeValue): Promise<BrandingAssets> {
+  const sealName = brandingFileName(certificateType, SEAL_FILE);
+  const signatureName = brandingFileName(certificateType, SIGNATURE_FILE);
+  const signature2Name = brandingFileName(certificateType, SIGNATURE2_FILE);
+  const bgName = brandingFileName(certificateType, TEMPLATE_BG_FILE);
+
   // List existing files first so we never request a file that doesn't exist.
   // Without this, missing signatures produce 404s in the browser console even
   // though the error is caught and handled as null.
   const fileList = await listBrandingFiles().catch(() => []);
   const existing = new Set(fileList.map((f) => f.name));
-  const maybeDownload = (path: string) =>
-    existing.has(path) ? downloadBlob(path).catch(() => null) : Promise.resolve(null);
+  const maybeDownload = (storedName: string) =>
+    existing.has(storedName) ? downloadBlob(storedName).catch(() => null) : Promise.resolve(null);
 
-  const [sealBlob, signatureBlob, signature2Blob, bgBlob, settingsRow] = await Promise.all([
-    maybeDownload(SEAL_PATH),
-    maybeDownload(SIGNATURE_PATH),
-    maybeDownload(SIGNATURE2_PATH),
-    maybeDownload(TEMPLATE_BG_PATH),
-    apiGet<(OrgSettings & { template_layout?: unknown }) | null>("/settings").catch(() => null),
+  const [sealBlob, signatureBlob, signature2Blob, bgBlob, templateRow] = await Promise.all([
+    maybeDownload(sealName),
+    maybeDownload(signatureName),
+    maybeDownload(signature2Name),
+    maybeDownload(bgName),
+    apiGet<CertificateTemplateRow | null>(`/certificate-templates/${certificateType}`).catch(() => null),
   ]);
   const bgSvgMarkup = bgBlob ? await readSvgMarkupFromBlob(bgBlob).catch(() => null) : null;
   const [seal, signature, signature2, bg] = await Promise.all([
@@ -91,17 +117,16 @@ async function loadBrandingFresh(): Promise<BrandingAssets> {
         ? blobToDataUrl(bgBlob).catch(() => null)
         : Promise.resolve(null),
   ]);
-  const settings: OrgSettings = settingsRow
+  const settings: OrgSettings = templateRow
     ? {
-        org_name: settingsRow.org_name,
-        org_prefix: settingsRow.org_prefix,
-        signatory1_name: settingsRow.signatory1_name,
-        signatory1_title: settingsRow.signatory1_title,
-        signatory2_name: settingsRow.signatory2_name,
-        signatory2_title: settingsRow.signatory2_title,
+        ...DEFAULT_SETTINGS,
+        signatory1_name: templateRow.signatory1_name,
+        signatory1_title: templateRow.signatory1_title,
+        signatory2_name: templateRow.signatory2_name,
+        signatory2_title: templateRow.signatory2_title,
       }
     : DEFAULT_SETTINGS;
-  const rawLayout = settingsRow?.template_layout ?? null;
+  const rawLayout = templateRow?.template_layout ?? null;
   const assets: BrandingAssets = {
     sealDataUrl: seal,
     signatureDataUrl: signature,
@@ -114,39 +139,71 @@ async function loadBrandingFresh(): Promise<BrandingAssets> {
     layout: ensureLayout(rawLayout),
     hasCustomLayout: !!rawLayout,
   };
-  cache = { at: Date.now(), assets };
+  cache.set(certificateType, { at: Date.now(), assets });
   return assets;
 }
 
-export async function loadBranding(): Promise<BrandingAssets> {
-  if (cache && Date.now() - cache.at < TTL) return cache.assets;
-  if (pendingLoad) return pendingLoad;
+export async function loadBranding(
+  certificateType: CertificateTypeValue = DEFAULT_CERTIFICATE_TYPE,
+): Promise<BrandingAssets> {
+  const cached = cache.get(certificateType);
+  if (cached && Date.now() - cached.at < TTL) return cached.assets;
+  const pending = pendingLoad.get(certificateType);
+  if (pending) return pending;
 
-  pendingLoad = loadBrandingFresh().finally(() => {
-    pendingLoad = null;
+  const load = loadBrandingFresh(certificateType).finally(() => {
+    pendingLoad.delete(certificateType);
   });
+  pendingLoad.set(certificateType, load);
 
-  return pendingLoad;
+  return load;
 }
 
-export async function saveTemplateLayout(layout: TemplateLayout) {
-  await apiPut("/settings", { template_layout: layout });
-  clearBrandingCache();
+export async function saveTemplateLayout(
+  layout: TemplateLayout,
+  certificateType: CertificateTypeValue = DEFAULT_CERTIFICATE_TYPE,
+) {
+  await apiPut(`/certificate-templates/${certificateType}`, { template_layout: layout });
+  clearBrandingCache(certificateType);
 }
 
-export function clearBrandingCache() {
-  cache = null;
-  pendingLoad = null;
+export async function saveSignatories(
+  signatories: Pick<
+    OrgSettings,
+    "signatory1_name" | "signatory1_title" | "signatory2_name" | "signatory2_title"
+  >,
+  certificateType: CertificateTypeValue = DEFAULT_CERTIFICATE_TYPE,
+) {
+  await apiPut(`/certificate-templates/${certificateType}`, signatories);
+  clearBrandingCache(certificateType);
 }
 
-export async function uploadBrandingFile(path: string, file: File) {
+export function clearBrandingCache(certificateType?: CertificateTypeValue) {
+  if (certificateType) {
+    cache.delete(certificateType);
+    pendingLoad.delete(certificateType);
+  } else {
+    cache.clear();
+    pendingLoad.clear();
+  }
+}
+
+export async function uploadBrandingFile(
+  path: string,
+  file: File,
+  certificateType: CertificateTypeValue = DEFAULT_CERTIFICATE_TYPE,
+) {
+  const storedName = brandingFileName(certificateType, path);
   const form = new FormData();
-  form.append("file", file, path);
-  await apiUpload(`/branding/${encodeURIComponent(path)}`, form);
-  clearBrandingCache();
+  form.append("file", file, storedName);
+  await apiUpload(`/branding/${encodeURIComponent(storedName)}`, form);
+  clearBrandingCache(certificateType);
 }
 
-export async function deleteBrandingFile(path: string) {
-  await apiDelete(`/branding/${encodeURIComponent(path)}`);
-  clearBrandingCache();
+export async function deleteBrandingFile(
+  path: string,
+  certificateType: CertificateTypeValue = DEFAULT_CERTIFICATE_TYPE,
+) {
+  await apiDelete(`/branding/${encodeURIComponent(brandingFileName(certificateType, path))}`);
+  clearBrandingCache(certificateType);
 }

@@ -59,6 +59,7 @@ import {
   type TemplateLayout,
 } from "@/lib/template-layout";
 import { clearBrandingCache, loadBranding, saveTemplateLayout } from "@/lib/branding";
+import { DEFAULT_CERTIFICATE_TYPE, type CertificateTypeValue } from "@/lib/certificate-types";
 import { renderPdfBlobPageToDataUrl, renderSvgMarkupToDataUrl } from "@/lib/pdf-like";
 import { getCssFontFamily } from "@/lib/font-loader";
 import { fileToDataUrl, inspectEditableSvgMarkup, type SvgItemPatch } from "@/lib/svg-template";
@@ -149,9 +150,11 @@ function buildDefaultOverlayLayout(currentLayout: TemplateLayout): TemplateLayou
 export function TemplateEditor({
   refreshToken = 0,
   refreshIncludesLayout = false,
+  certificateType = DEFAULT_CERTIFICATE_TYPE,
 }: {
   refreshToken?: number;
   refreshIncludesLayout?: boolean;
+  certificateType?: CertificateTypeValue;
 }) {
   const [layout, setLayout] = useState<TemplateLayout>(DEFAULT_LAYOUT);
   const [bgUrl, setBgUrl] = useState<string | null>(null);
@@ -251,7 +254,7 @@ export function TemplateEditor({
   );
 
   const loadTemplateEditorState = useCallback(async (includeLayout: boolean) => {
-    const b = await loadBranding();
+    const b = await loadBranding(certificateType);
     setBgBlob(b.templateBgBlob);
 
     if (includeLayout) {
@@ -306,7 +309,7 @@ export function TemplateEditor({
     setSig2Url(b.signature2DataUrl);
     setSelectedSvgKey(null);
     setSelectedSvgBox(null);
-  }, []);
+  }, [certificateType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -719,12 +722,15 @@ export function TemplateEditor({
   async function onSave() {
     setSaving(true);
     try {
-      await saveTemplateLayout({
-        ...layoutRef.current,
-        svgBackgroundOverrides: bgSvgOverrides,
-      });
+      await saveTemplateLayout(
+        {
+          ...layoutRef.current,
+          svgBackgroundOverrides: bgSvgOverrides,
+        },
+        certificateType,
+      );
       originalBgSvgOverridesRef.current = serializeSvgOverrides(bgSvgOverrides);
-      clearBrandingCache();
+      clearBrandingCache(certificateType);
       toast.success(
         bgSvgDirty ? "Template layout and SVG background edits saved" : "Template layout saved",
       );
@@ -742,8 +748,8 @@ export function TemplateEditor({
     setBgSvgOverrides({});
     setSelected(null);
     try {
-      await saveTemplateLayout(DEFAULT_LAYOUT);
-      clearBrandingCache();
+      await saveTemplateLayout(DEFAULT_LAYOUT, certificateType);
+      clearBrandingCache(certificateType);
       toast.success("Layout reset to defaults and saved");
     } catch (err: any) {
       toast.error(err.message ?? "Could not save reset layout");
@@ -760,8 +766,8 @@ export function TemplateEditor({
     setSelectedSvgKey(null);
 
     try {
-      await saveTemplateLayout(nextLayout);
-      clearBrandingCache();
+      await saveTemplateLayout(nextLayout, certificateType);
+      clearBrandingCache(certificateType);
       toast.success("Only the QR code overlay is active now");
     } catch (error: any) {
       toast.error(error.message ?? "Could not save QR-only layout");
@@ -923,8 +929,8 @@ export function TemplateEditor({
   }
 
   async function saveAppliedLayout(nextLayout: TemplateLayout) {
-    await saveTemplateLayout(nextLayout);
-    clearBrandingCache();
+    await saveTemplateLayout(nextLayout, certificateType);
+    clearBrandingCache(certificateType);
   }
 
   async function onUseStandardOverlays() {
@@ -1070,14 +1076,17 @@ export function TemplateEditor({
   async function onPreviewPdf() {
     toast.message("Generating preview PDF...");
     try {
-      await saveTemplateLayout({
-        ...layoutRef.current,
-        svgBackgroundOverrides: bgSvgOverrides,
-      });
+      await saveTemplateLayout(
+        {
+          ...layoutRef.current,
+          svgBackgroundOverrides: bgSvgOverrides,
+        },
+        certificateType,
+      );
       originalBgSvgOverridesRef.current = serializeSvgOverrides(bgSvgOverrides);
-      clearBrandingCache();
+      clearBrandingCache(certificateType);
       const { downloadCertificatePdf } = await import("@/lib/pdf");
-      await downloadCertificatePdf(SAMPLE);
+      await downloadCertificatePdf({ ...SAMPLE, certificateType });
     } catch (e: any) {
       toast.error(e.message ?? "Preview failed");
     }
