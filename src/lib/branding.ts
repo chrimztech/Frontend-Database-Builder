@@ -94,14 +94,22 @@ async function loadBrandingFresh(certificateType: CertificateTypeValue): Promise
   // though the error is caught and handled as null.
   const fileList = await listBrandingFiles().catch(() => []);
   const existing = new Set(fileList.map((f) => f.name));
-  const maybeDownload = (storedName: string) =>
-    existing.has(storedName) ? downloadBlob(storedName).catch(() => null) : Promise.resolve(null);
+  // Back-compat: before per-type templates existed, assets were stored
+  // unprefixed (just "seal.png" etc). Fall back to those for "competence" —
+  // the type every pre-existing deployment's uploads implicitly belong to —
+  // so upgrading doesn't require manually renaming files on the server.
+  const maybeDownload = (storedName: string, legacyName?: string) => {
+    if (existing.has(storedName)) return downloadBlob(storedName).catch(() => null);
+    if (legacyName && existing.has(legacyName)) return downloadBlob(legacyName).catch(() => null);
+    return Promise.resolve(null);
+  };
+  const legacyFallback = (file: string) => (certificateType === "competence" ? file : undefined);
 
   const [sealBlob, signatureBlob, signature2Blob, bgBlob, templateRow] = await Promise.all([
-    maybeDownload(sealName),
-    maybeDownload(signatureName),
-    maybeDownload(signature2Name),
-    maybeDownload(bgName),
+    maybeDownload(sealName, legacyFallback(SEAL_FILE)),
+    maybeDownload(signatureName, legacyFallback(SIGNATURE_FILE)),
+    maybeDownload(signature2Name, legacyFallback(SIGNATURE2_FILE)),
+    maybeDownload(bgName, legacyFallback(TEMPLATE_BG_FILE)),
     apiGet<CertificateTemplateRow | null>(`/certificate-templates/${certificateType}`).catch(() => null),
   ]);
   const bgSvgMarkup = bgBlob ? await readSvgMarkupFromBlob(bgBlob).catch(() => null) : null;
