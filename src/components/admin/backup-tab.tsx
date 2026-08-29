@@ -95,10 +95,26 @@ type StorageManifest = {
 
 export function BackupTab() {
   const [fullBusy, setFullBusy] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [tableBusy, setTableBusy] = useState<string | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
   const [manifest, setManifest] = useState<StorageManifest | null>(null);
   const [lastBackup, setLastBackup] = useState<string | null>(null);
+  const [lastArchive, setLastArchive] = useState<string | null>(null);
+
+  async function downloadArchive() {
+    setArchiveBusy(true);
+    try {
+      const { downloadFullBackupArchive } = await import("@/lib/api/backup.functions");
+      await downloadFullBackupArchive();
+      setLastArchive(new Date().toLocaleString("en-GB"));
+      toast.success("Full backup archive downloaded");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Backup archive failed");
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
 
   async function downloadFullBackup() {
     setFullBusy(true);
@@ -217,11 +233,46 @@ export function BackupTab() {
         </div>
       )}
 
+      {/* Full backup archive — database + every file on disk */}
+      <AdminPanel>
+        <AdminPanelHeader
+          title="Full backup archive"
+          description="Downloads one ZIP with a complete database dump plus every certificate PDF and branding asset on disk — the actual files, not just a manifest."
+        />
+        <div className="px-6 pb-6">
+          <div className="flex flex-wrap items-center gap-5 rounded-[1.35rem] border border-border/70 bg-muted/20 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+              <HardDrive className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold">Database + certificates + branding · ZIP</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Includes a full Postgres dump (database.sql) plus every file under the
+                certificates and branding storage folders.
+              </p>
+              {lastArchive && (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Last downloaded {lastArchive}
+                </p>
+              )}
+            </div>
+            <Button onClick={downloadArchive} disabled={archiveBusy}>
+              {archiveBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download full archive
+            </Button>
+          </div>
+        </div>
+      </AdminPanel>
+
       {/* Full system backup */}
       <AdminPanel>
         <AdminPanelHeader
-          title="Full system backup"
-          description="Downloads every table as a single structured JSON file — suitable for disaster recovery or system migration."
+          title="Database tables export"
+          description="Downloads every table as a single structured JSON file — a lighter-weight export for spreadsheet/reporting use (does not include certificate PDFs or branding files; use the full backup archive above for that)."
         />
         <div className="px-6 pb-6">
           <div className="flex flex-wrap items-center gap-5 rounded-[1.35rem] border border-border/70 bg-muted/20 p-5">

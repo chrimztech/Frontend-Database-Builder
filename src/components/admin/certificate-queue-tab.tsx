@@ -23,6 +23,7 @@ type QueueCertificate = {
   national_id: string | null;
   created_at: string | null;
   certificate_type?: string | null;
+  pdf_path?: string | null;
 };
 
 const STATUS_BADGE: Record<EmailStatus, string> = {
@@ -70,6 +71,7 @@ export function CertificateQueueTab() {
         issuer_name: cert.issuer_name,
         national_id: cert.national_id,
         certificate_type: cert.certificate_type,
+        pdf_path: cert.pdf_path,
       });
       toast.success(`Certificate sent to ${(result as any).sentTo}`);
       refresh();
@@ -101,6 +103,7 @@ export function CertificateQueueTab() {
           issuer_name: cert.issuer_name,
           national_id: cert.national_id,
           certificate_type: cert.certificate_type,
+          pdf_path: cert.pdf_path,
         });
         ok++;
       } catch (e: any) {

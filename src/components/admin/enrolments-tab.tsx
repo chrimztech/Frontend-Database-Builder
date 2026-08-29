@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Award, Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Award, Check, CheckCheck, ChevronsUpDown, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -123,6 +123,7 @@ function fmtZmw(value: number | null) {
 export function EnrolmentsTab() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"all" | EnrolmentStatus>("all");
+  const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -142,7 +143,24 @@ export function EnrolmentsTab() {
   };
 
   const list = enrolments.data ?? [];
-  const filtered = tab === "all" ? list : list.filter((row) => row.status === tab);
+  const byStatus = tab === "all" ? list : list.filter((row) => row.status === tab);
+  const query = search.trim().toLowerCase();
+  const filtered = !query
+    ? byStatus
+    : byStatus.filter((row) => {
+        const haystack = [
+          row.student?.full_name,
+          row.student?.email,
+          row.student?.national_id,
+          row.course?.name,
+          row.course?.prefix,
+          row.certificate?.certificate_code,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
   const counts = {
     all: list.length,
     enrolled: list.filter((r) => r.status === "enrolled").length,
@@ -151,12 +169,15 @@ export function EnrolmentsTab() {
     certified: list.filter((r) => r.status === "certified").length,
   };
 
-  // Only enrolled rows can be bulk-started
-  const selectableIds = filtered
-    .filter((r) => r.status === "enrolled")
-    .map((r) => r.id);
+  // Enrolled rows can be bulk-started, in-progress rows can be bulk-completed —
+  // both are selectable together so "select all" works from any tab (including "All").
+  const startableIds = filtered.filter((r) => r.status === "enrolled").map((r) => r.id);
+  const completableIds = filtered.filter((r) => r.status === "in_progress").map((r) => r.id);
+  const selectableIds = [...startableIds, ...completableIds];
   const allSelected =
     selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const selectedStartIds = startableIds.filter((id) => selectedIds.has(id));
+  const selectedCompleteIds = completableIds.filter((id) => selectedIds.has(id));
 
   function toggleSelectAll() {
     if (allSelected) {
@@ -176,11 +197,25 @@ export function EnrolmentsTab() {
   }
 
   async function bulkStart() {
-    if (selectedIds.size === 0) return;
+    if (selectedStartIds.length === 0) return;
     setBulkBusy(true);
     try {
-      await apiPost("/enrolments/bulk-start", { ids: [...selectedIds] });
-      toast.success(`${selectedIds.size} enrolment(s) marked In progress`);
+      await apiPost("/enrolments/bulk-start", { ids: selectedStartIds });
+      toast.success(`${selectedStartIds.length} enrolment(s) marked In progress`);
+      refresh();
+    } catch (err: any) {
+      toast.error(err.message ?? "Bulk update failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkComplete() {
+    if (selectedCompleteIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      await apiPost("/enrolments/bulk-complete", { ids: selectedCompleteIds });
+      toast.success(`${selectedCompleteIds.length} enrolment(s) marked Completed`);
       refresh();
     } catch (err: any) {
       toast.error(err.message ?? "Bulk update failed");
@@ -219,18 +254,37 @@ export function EnrolmentsTab() {
             <AdminPanelHeader
               title="Enrolment records"
               description="Track each learner from enrolment through certification, including fee handling and operational next steps."
+              actions={
+                <div className="relative w-full sm:w-80">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="pl-9"
+                    placeholder="Search by student, email, NRC, or course..."
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </div>
+              }
             />
 
             {/* Bulk action bar */}
             {selectedIds.size > 0 && (
-              <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-3 sm:px-6">
+              <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-5 py-3 sm:px-6">
                 <span className="text-sm font-medium text-primary">
                   {selectedIds.size} selected
                 </span>
-                <Button size="sm" disabled={bulkBusy} onClick={bulkStart}>
-                  <ArrowRight className="mr-1 h-3 w-3" />
-                  {bulkBusy ? "Updating..." : "Start course"}
-                </Button>
+                {selectedStartIds.length > 0 && (
+                  <Button size="sm" disabled={bulkBusy} onClick={bulkStart}>
+                    <ArrowRight className="mr-1 h-3 w-3" />
+                    {bulkBusy ? "Updating..." : `Start ${selectedStartIds.length} course${selectedStartIds.length === 1 ? "" : "s"}`}
+                  </Button>
+                )}
+                {selectedCompleteIds.length > 0 && (
+                  <Button size="sm" disabled={bulkBusy} onClick={bulkComplete}>
+                    <CheckCheck className="mr-1 h-3 w-3" />
+                    {bulkBusy ? "Updating..." : `Mark ${selectedCompleteIds.length} completed`}
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
                   Clear
                 </Button>
@@ -242,8 +296,12 @@ export function EnrolmentsTab() {
                 <div className="text-sm text-muted-foreground">Loading enrolments...</div>
               ) : filtered.length === 0 ? (
                 <AdminEmptyState
-                  title="Nothing in this stage"
-                  description="When learners move into this status, they will appear here automatically."
+                  title={query ? "No matches" : "Nothing in this stage"}
+                  description={
+                    query
+                      ? "Try a different search term."
+                      : "When learners move into this status, they will appear here automatically."
+                  }
                 />
               ) : (
                 <Table>
@@ -254,7 +312,7 @@ export function EnrolmentsTab() {
                           <Checkbox
                             checked={allSelected}
                             onCheckedChange={toggleSelectAll}
-                            aria-label="Select all enrolled"
+                            aria-label="Select all"
                           />
                         )}
                       </TableHead>
@@ -367,7 +425,7 @@ function EnrolRow({
     }
   }
 
-  const canSelect = enrolment.status === "enrolled";
+  const canSelect = enrolment.status === "enrolled" || enrolment.status === "in_progress";
 
   return (
     <TableRow className={selected ? "bg-primary/5" : undefined}>

@@ -14,6 +14,7 @@ import {
 import { registerCustomFontsInDoc, preloadCustomFonts } from "./font-loader";
 import { applyDynamicSvgTextBindings } from "./svg-template";
 import { DEFAULT_CERTIFICATE_TYPE, type CertificateTypeValue } from "./certificate-types";
+import { toTitleCaseName } from "./text";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 export interface CertificateInput {
@@ -345,6 +346,10 @@ async function drawBuiltInSampleBackground(
 }
 
 export async function generateCertificatePdf(cert: CertificateInput): Promise<Blob> {
+  // Normalize the recipient name here so every certificate renders consistently
+  // regardless of how it was cased upstream (manual edit, stale data, etc.).
+  cert = { ...cert, recipientName: toTitleCaseName(cert.recipientName) };
+
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();

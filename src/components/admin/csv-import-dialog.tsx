@@ -48,6 +48,7 @@ const TEMPLATE_CSV = [
   "John Banda,john.banda@example.com,0977123456,123456/78/1,non_unza,,Computer Basics,paid,500",
   "Mary Phiri,mary.phiri@unza.zm,0966234567,234567/89/2,unza,2021001234,Computer Basics,paid,200",
   "Peter Mwansa,,,345678/90/3,non_unza,,,pending,",
+  "Grace Tembo,,,456789/01/4,,,Computer Basics,,",
 ].join("\n");
 
 // Simple RFC-4180 CSV parser
@@ -154,16 +155,21 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
       const full_name = toTitleCaseName(get("full_name"));
       const national_id = get("national_id");
       const category = toCategory(get("category"));
-      const payment_status = toPayment(get("payment_status"));
       const feeRaw = get("fee_charged");
-      const fee_charged = feeRaw ? parseFloat(feeRaw) : null;
+      const paymentRaw = get("payment_status");
+      const feeParsed = feeRaw ? parseFloat(feeRaw) : null;
+      // No fee and no payment status given at all — treat the course as free
+      // rather than leaving it "pending" (which would block auto-enrolment).
+      const noFeeInfo = !feeRaw && !paymentRaw;
+      const payment_status = paymentRaw ? toPayment(paymentRaw) : noFeeInfo ? "free" : "pending";
+      const fee_charged = feeRaw && !isNaN(feeParsed as number) ? (feeParsed as number) : noFeeInfo ? 0 : null;
       const course = get("course") || get("course_name") || get("course_prefix");
       const { course: matchedCourse, confidence } = findBestCourseMatch(course, availableCourses);
 
       if (!full_name) errors.push("full_name required");
       if (!national_id) errors.push("national_id required");
       if (category === "unza" && !get("unza_student_id")) errors.push("unza_student_id required for UNZA category");
-      if (feeRaw && isNaN(fee_charged as number)) errors.push("fee_charged must be a number");
+      if (feeRaw && isNaN(feeParsed as number)) errors.push("fee_charged must be a number");
 
       return {
         lineNo: i + 2,
@@ -177,7 +183,7 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
         course_match_id: matchedCourse?.id ?? null,
         course_match_confidence: confidence,
         payment_status,
-        fee_charged: feeRaw && !isNaN(fee_charged as number) ? (fee_charged as number) : null,
+        fee_charged,
         errors,
       };
     });
@@ -335,7 +341,7 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                   ["category", "unza or non_unza (default: non_unza)"],
                   ["unza_student_id", "Required when category = unza"],
                   ["course", "Course name or prefix — triggers auto-enrolment"],
-                  ["payment_status", "pending / paid / waived / free (default: pending)"],
+                  ["payment_status", "pending / paid / waived / free"],
                   ["fee_charged", "Amount in ZMW (number)"],
                 ].map(([col, desc]) => (
                   <div key={col} className="flex gap-3">
@@ -347,7 +353,11 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
               <p className="mt-4 text-xs text-muted-foreground">
                 Students with <strong>paid</strong>, <strong>waived</strong>, or{" "}
                 <strong>free</strong> payment status and a matching course are
-                automatically enrolled.
+                automatically enrolled. Leave both <code>payment_status</code> and{" "}
+                <code>fee_charged</code> blank to default the row to{" "}
+                <strong>free</strong> — if only <code>fee_charged</code> is left blank,
+                the row defaults to <strong>pending</strong> instead. Leave{" "}
+                <code>category</code> blank to default to <strong>non_unza</strong>.
               </p>
             </div>
           </div>
@@ -442,7 +452,12 @@ export function CsvImportDialog({ onImported }: { onImported: () => void }) {
                           </span>
                         )}
                       </td>
-                      <td className="p-2">{row.payment_status}</td>
+                      <td className="p-2">
+                        {row.payment_status}
+                        <span className="ml-1.5 text-muted-foreground">
+                          · {row.fee_charged != null ? `K${row.fee_charged}` : "—"}
+                        </span>
+                      </td>
                       <td className="p-2">
                         {row.errors.length === 0 ? (
                           <span className="font-semibold text-success">✓ Valid</span>

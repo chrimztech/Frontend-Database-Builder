@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/table";
 import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { verificationUrl } from "@/lib/cert";
+import { toTitleCaseName } from "@/lib/text";
 import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from "@/lib/certificate-delivery";
 import {
   AdminEmptyState,
@@ -63,6 +64,7 @@ type Cert = {
   created_at: string;
   national_id?: string | null;
   certificate_type?: string;
+  pdf_path?: string | null;
 };
 
 export function CertificatesTab() {
@@ -387,8 +389,9 @@ function EditCertificateDialog({ cert, onSaved }: { cert: Cert; onSaved: () => v
     }
     setBusy(true);
     try {
+      const normalizedName = toTitleCaseName(recipientName.trim());
       await apiPatch(`/certificates/${cert.id}`, {
-        recipient_name: recipientName.trim(),
+        recipient_name: normalizedName,
         recipient_email: recipientEmail.trim() || null,
         programme: programme.trim(),
         national_id: nationalId.trim() || null,
@@ -402,7 +405,7 @@ function EditCertificateDialog({ cert, onSaved }: { cert: Cert; onSaved: () => v
       await uploadCertificatePdf({
         certificateId: certificateCode,
         certificateType: cert.certificate_type as any,
-        recipientName: recipientName.trim(),
+        recipientName: normalizedName,
         programme: programme.trim(),
         issueDate,
         issuerName: cert.issuer_name,

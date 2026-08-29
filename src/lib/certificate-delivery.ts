@@ -13,6 +13,7 @@ interface CertInput {
   issuer_name?: string | null;
   national_id?: string | null;
   certificate_type?: string | null;
+  pdf_path?: string | null;
 }
 
 function apiBase(): string {
@@ -28,6 +29,10 @@ function authHeader(): Record<string, string> {
 }
 
 async function ensurePdfUploaded(cert: CertInput): Promise<void> {
+  // A PDF already exists on the server for this certificate — skip the expensive
+  // client-side render (fonts + QR + branding + rasterization) and re-upload.
+  if (cert.pdf_path) return;
+
   const { generateCertificatePdf } = await import('./pdf');
   const code = cert.certificate_code ?? cert.certificate_id;
 

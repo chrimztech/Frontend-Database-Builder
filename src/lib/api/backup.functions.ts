@@ -1,6 +1,10 @@
 // Backup & export helpers — plain async functions so they run in the browser
 // where the user's JWT is available in localStorage.
-import { apiGet } from "@/lib/api";
+import { apiGet, getToken } from "@/lib/api";
+
+function apiBase(): string {
+  return (import.meta.env.VITE_API_URL as string) ?? "http://localhost:8080/api";
+}
 
 const TABLE_ENDPOINT: Record<string, string> = {
   students:           "/students",
@@ -79,19 +83,38 @@ export async function exportTableData({
   return { rows_json: JSON.stringify(rows) };
 }
 
-// Storage manifest — lists branding files from the Spring Boot backend
+type StorageBucket = {
+  count: number;
+  total_bytes: number;
+  files: { name: string; size: number; updated_at: string | null }[];
+};
+
+// Storage manifest — file counts/sizes for both the certificates and branding
+// buckets, computed server-side (GET /backup/manifest).
 export async function getStorageManifest() {
-  const brandingFiles = await apiGet<{ name: string; size: number }[]>("/branding").catch(() => []);
-  return {
-    certificates: { count: 0, total_bytes: 0, files: [] as never[] },
-    branding: {
-      count:       brandingFiles.length,
-      total_bytes: brandingFiles.reduce((s, f) => s + (f.size ?? 0), 0),
-      files: brandingFiles.map((f) => ({
-        name:       f.name,
-        size:       f.size ?? 0,
-        updated_at: null as string | null,
-      })),
-    },
-  };
+  return apiGet<{ certificates: StorageBucket; branding: StorageBucket }>("/backup/manifest");
+}
+
+// Downloads one ZIP containing a full Postgres dump plus every certificate PDF
+// and branding asset on disk — the actual file contents, not just a manifest.
+export async function downloadFullBackupArchive(): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${apiBase()}/backup/full`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text || `Backup failed: HTTP ${res.status}`);
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cemis-full-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
