@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { getToken, auth } from "@/lib/api";
+import { useIdleLogout } from "@/lib/use-idle-logout";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -13,5 +14,10 @@ export const Route = createFileRoute("/_authenticated")({
       throw redirect({ to: "/auth" });
     }
   },
-  component: () => <Outlet />,
+  component: AuthenticatedLayout,
 });
+
+function AuthenticatedLayout() {
+  useIdleLogout();
+  return <Outlet />;
+}

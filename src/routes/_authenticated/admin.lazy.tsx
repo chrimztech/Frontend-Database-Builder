@@ -15,6 +15,7 @@ import {
   LogOut,
   Mail,
   Menu,
+  Milestone,
   Palette,
   Settings,
   ShieldCheck,
@@ -56,6 +57,11 @@ const CoursesTab = lazy(() =>
 const EnrolmentsTab = lazy(() =>
   import("@/components/admin/enrolments-tab").then((module) => ({
     default: module.EnrolmentsTab,
+  })),
+);
+const StudentJourneyTab = lazy(() =>
+  import("@/components/admin/student-journey-tab").then((module) => ({
+    default: module.StudentJourneyTab,
   })),
 );
 const CertificatesTab = lazy(() =>
@@ -139,6 +145,7 @@ const NAV: NavGroup[] = [
     items: [
       { id: "courses", icon: BookOpen, label: "Courses" },
       { id: "enrolments", icon: ClipboardList, label: "Enrolments" },
+      { id: "journey", icon: Milestone, label: "Student journey" },
     ],
   },
   {
@@ -192,6 +199,11 @@ const SECTION_META: Record<SectionId, { eyebrow: string; description: string }> 
   enrolments: {
     eyebrow: "Training",
     description: "Monitor enrolment progress and prepare completions for certification.",
+  },
+  journey: {
+    eyebrow: "Training",
+    description:
+      "See every student's full timeline — registered, started, completed, and certified — in one place.",
   },
   certificates: {
     eyebrow: "Certificates",
@@ -267,6 +279,8 @@ function renderSection(section: SectionId) {
       return <CoursesTab />;
     case "enrolments":
       return <EnrolmentsTab />;
+    case "journey":
+      return <StudentJourneyTab />;
     case "certificates":
       return <CertificatesTab />;
     case "pending":

@@ -9,6 +9,7 @@ export type SectionId =
   | "users"
   | "courses"
   | "enrolments"
+  | "journey"
   | "certificates"
   | "pending"
   | "email-queue"
@@ -26,6 +27,7 @@ const SECTION_IDS = new Set<SectionId>([
   "users",
   "courses",
   "enrolments",
+  "journey",
   "certificates",
   "pending",
   "email-queue",
