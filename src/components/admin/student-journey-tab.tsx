@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiGet } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   AdminEmptyState,
   AdminPageHeader,
@@ -29,8 +30,10 @@ import {
   AdminPanelHeader,
   AdminStat,
 } from "@/components/admin/admin-ui";
+import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
+type StudentCategory = "unza" | "non_unza";
 
 type JourneyRow = {
   id: string;
@@ -49,6 +52,8 @@ type JourneyRow = {
     full_name: string;
     email: string | null;
     national_id: string | null;
+    unza_student_id: string | null;
+    category: StudentCategory;
   } | null;
   course: {
     id: string;
@@ -71,6 +76,18 @@ const STATUS_BADGE: Record<EnrolmentStatus, string> = {
   certified: "bg-success text-success-foreground",
 };
 
+const CATEGORY_LABEL: Record<StudentCategory, string> = {
+  unza: "UNZA",
+  non_unza: "Non-UNZA",
+};
+
+const CATEGORY_BADGE: Record<StudentCategory, string> = {
+  unza: "bg-accent text-accent-foreground",
+  non_unza: "bg-muted text-muted-foreground",
+};
+
+const UNZA_GREEN: [number, number, number] = [26, 92, 46];
+
 function fmtDate(value: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleDateString("en-GB", {
@@ -82,6 +99,39 @@ function fmtDate(value: string | null) {
 
 function dateOnly(value: string) {
   return value.slice(0, 10);
+}
+
+function initials(name?: string | null) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
+  return (first + last).toUpperCase();
+}
+
+/** UNZA students are identified by their student number; everyone else by NRC. */
+function identifierFor(student: JourneyRow["student"]) {
+  if (!student) return { label: "NRC", value: "—" };
+  if (student.category === "unza") {
+    return { label: "Student No.", value: student.unza_student_id || "—" };
+  }
+  return { label: "NRC", value: student.national_id || "—" };
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function StudentJourneyTab() {
@@ -122,6 +172,7 @@ export function StudentJourneyTab() {
         row.student?.full_name,
         row.student?.email,
         row.student?.national_id,
+        row.student?.unza_student_id,
         row.course?.name,
         row.course?.prefix,
         row.certificate?.certificate_code,
@@ -159,26 +210,56 @@ export function StudentJourneyTab() {
     }
     setExporting(true);
     try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      const [{ jsPDF }, { default: autoTable }, logoData] = await Promise.all([
         import("jspdf"),
         import("jspdf-autotable"),
+        fetchAsDataUrl(unzaLogo.url),
       ]);
 
       const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 40;
 
-      doc.setFontSize(16);
-      doc.text("Student Journey Report", 40, 40);
+      // ── Letterhead ──────────────────────────────────────────────────────
+      if (logoData) {
+        try {
+          doc.addImage(logoData, "PNG", margin, 24, 42, 42);
+        } catch {
+          // Unsupported image format — report still generates without the logo
+        }
+      }
+      const textX = logoData ? margin + 54 : margin;
+
+      doc.setTextColor(26, 26, 26);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(17);
+      doc.text("Student Journey Report", textX, 42);
+
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      doc.setTextColor(100);
-      const generatedAt = new Date().toLocaleString("en-GB");
-      const filterNote = hasActiveFilters ? " (filtered)" : "";
-      doc.text(`Generated ${generatedAt}${filterNote} — ${filtered.length} record(s)`, 40, 58);
+      doc.setTextColor(90);
+      doc.text("University of Zambia — Technology and E-Learning Support Unit (TeLS)", textX, 58);
 
+      doc.setDrawColor(...UNZA_GREEN);
+      doc.setLineWidth(1.5);
+      doc.line(margin, 78, pageWidth - margin, 78);
+
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      const generatedAt = new Date().toLocaleString("en-GB");
+      const filterNote = hasActiveFilters ? " · filtered view" : " · full list";
+      doc.text(`Generated ${generatedAt}${filterNote} — ${filtered.length} record(s)`, margin, 92);
+
+      // ── Table ───────────────────────────────────────────────────────────
       autoTable(doc, {
-        startY: 72,
+        startY: 104,
+        margin: { left: margin, right: margin },
         head: [[
+          "#",
           "Student",
-          "Email / NRC",
+          "Category",
+          "ID / NRC",
+          "Email",
           "Course",
           "Registered",
           "Started",
@@ -186,20 +267,62 @@ export function StudentJourneyTab() {
           "Certificate issued",
           "Status",
         ]],
-        body: filtered.map((row) => [
-          row.student?.full_name ?? "-",
-          row.student?.email || row.student?.national_id || "-",
-          row.course?.name ?? "-",
-          fmtDate(row.enrolled_at),
-          fmtDate(row.started_at),
-          fmtDate(row.completed_at),
-          fmtDate(row.certificate?.issue_date ?? row.certificate?.created_at ?? null),
-          STATUS_LABEL[row.status],
-        ]),
-        styles: { fontSize: 8, cellPadding: 5 },
-        headStyles: { fillColor: [26, 92, 46] },
+        body: filtered.map((row, index) => {
+          const id = identifierFor(row.student);
+          return [
+            String(index + 1),
+            row.student?.full_name ?? "-",
+            row.student ? CATEGORY_LABEL[row.student.category] : "-",
+            id.value,
+            row.student?.email || "—",
+            row.course?.name ?? "-",
+            fmtDate(row.enrolled_at),
+            fmtDate(row.started_at),
+            fmtDate(row.completed_at),
+            fmtDate(row.certificate?.issue_date ?? row.certificate?.created_at ?? null),
+            STATUS_LABEL[row.status],
+          ];
+        }),
+        styles: { fontSize: 7.5, cellPadding: 5, lineColor: [225, 225, 225], lineWidth: 0.5 },
+        headStyles: { fillColor: UNZA_GREEN, textColor: 255, fontStyle: "bold" },
         alternateRowStyles: { fillColor: [245, 247, 245] },
+        columnStyles: {
+          0: { cellWidth: 20, halign: "center" },
+          1: { cellWidth: 95 },
+          2: { cellWidth: 50, halign: "center" },
+          3: { cellWidth: 70 },
+          4: { cellWidth: 110 },
+          5: { cellWidth: 85 },
+          6: { cellWidth: 58 },
+          7: { cellWidth: 58 },
+          8: { cellWidth: 58 },
+          9: { cellWidth: 62 },
+          10: { cellWidth: 55, halign: "center" },
+        },
+        didDrawPage: () => {
+          doc.setFontSize(8);
+          doc.setTextColor(140);
+          doc.text(
+            "CEMIS — UNZA Technology and E-Learning Support Unit",
+            margin,
+            doc.internal.pageSize.getHeight() - 20,
+          );
+        },
       });
+
+      // ── Page numbers (added after layout, once total page count is known) ──
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(140);
+        doc.text(
+          `Page ${i} of ${pageCount}`,
+          pageWidth - margin,
+          doc.internal.pageSize.getHeight() - 20,
+          { align: "right" },
+        );
+      }
 
       doc.save(`student-journey-${new Date().toISOString().slice(0, 10)}.pdf`);
       toast.success("PDF report downloaded");
@@ -246,7 +369,7 @@ export function StudentJourneyTab() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
-              placeholder="Search name, email, NRC, course..."
+              placeholder="Search name, email, NRC, student no, course..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -319,8 +442,9 @@ export function StudentJourneyTab() {
             />
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10">
                 <TableRow>
+                  <TableHead className="w-10 text-right">#</TableHead>
                   <TableHead>Student</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Registered</TableHead>
@@ -331,26 +455,53 @@ export function StudentJourneyTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <div className="font-medium">{row.student?.full_name ?? "-"}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {row.student?.email ?? row.student?.national_id ?? ""}
-                      </div>
-                    </TableCell>
-                    <TableCell>{row.course?.name ?? "-"}</TableCell>
-                    <TableCell className="text-muted-foreground">{fmtDate(row.enrolled_at)}</TableCell>
-                    <TableCell className="text-muted-foreground">{fmtDate(row.started_at)}</TableCell>
-                    <TableCell className="text-muted-foreground">{fmtDate(row.completed_at)}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {fmtDate(row.certificate?.issue_date ?? row.certificate?.created_at ?? null)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_BADGE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((row, index) => {
+                  const id = identifierFor(row.student);
+                  const category = row.student?.category ?? "non_unza";
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                        {index + 1}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={cn(
+                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                              CATEGORY_BADGE[category],
+                            )}
+                          >
+                            {initials(row.student?.full_name)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium">{row.student?.full_name ?? "-"}</div>
+                            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {row.student?.email || "No email on file"}
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <Badge className={cn("text-[10px]", CATEGORY_BADGE[category])}>
+                                {CATEGORY_LABEL[category]}
+                              </Badge>
+                              <span className="font-mono text-[11px] text-muted-foreground">
+                                {id.label}: {id.value}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{row.course?.name ?? "-"}</TableCell>
+                      <TableCell className="text-muted-foreground">{fmtDate(row.enrolled_at)}</TableCell>
+                      <TableCell className="text-muted-foreground">{fmtDate(row.started_at)}</TableCell>
+                      <TableCell className="text-muted-foreground">{fmtDate(row.completed_at)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {fmtDate(row.certificate?.issue_date ?? row.certificate?.created_at ?? null)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={STATUS_BADGE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
