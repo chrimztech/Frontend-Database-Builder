@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiGet } from '@/lib/api';
 import { generateCertificate as generateCertificateServer, markCertificateQueued } from '@/lib/api/certificates.functions';
+import { AdminPagination, type PageResponse } from '@/components/admin/admin-ui';
 
 type PendingEnrolment = {
   id: string;
@@ -40,23 +41,28 @@ async function generateCertificateWithPdf(enrolment: PendingEnrolment) {
   return cert;
 }
 
+const PAGE_SIZE = 25;
+
 export function PendingCertificatesTab() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busyOne, setBusyOne] = useState<Record<string, boolean>>({});
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [page, setPage] = useState(0);
 
   const pending = useQuery({
-    queryKey: ['pending-certificates'],
+    queryKey: ['pending-certificates', page],
     queryFn: async () => {
       // enrolments completed/certified and not linked to a certificate
-      return apiGet<PendingEnrolment[]>(
-        '/enrolments?statusIn=completed&statusIn=certified&noCertificate=true',
+      return apiGet<PageResponse<PendingEnrolment>>(
+        `/enrolments?statusIn=completed&statusIn=certified&noCertificate=true&page=${page}&size=${PAGE_SIZE}`,
       );
     },
   });
 
-  const rows = pending.data ?? [];
+  const rows = pending.data?.content ?? [];
+  const totalElements = pending.data?.total_elements ?? 0;
+  const totalPages = pending.data?.total_pages ?? 0;
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }));
   const selectedIds = Object.keys(selected).filter((k) => selected[k]);
   const allSelected = rows.length > 0 && rows.every((r) => selected[r.id]);
@@ -188,6 +194,13 @@ export function PendingCertificatesTab() {
             </TableBody>
           </Table>
         )}
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </div>
     </div>
   );

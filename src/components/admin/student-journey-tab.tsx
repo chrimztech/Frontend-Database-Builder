@@ -345,7 +345,7 @@ export function StudentJourneyTab() {
         headStyles: { fillColor: UNZA_GREEN, textColor: 255, fontStyle: "bold" },
         alternateRowStyles: { fillColor: [245, 247, 245] },
         columnStyles: {
-          0: { cellWidth: 20, halign: "center" },
+          0: { cellWidth: 34, halign: "center", cellPadding: { top: 5, bottom: 5, left: 2, right: 2 } },
           1: { cellWidth: 95 },
           2: { cellWidth: 50, halign: "center" },
           3: { cellWidth: 70 },
