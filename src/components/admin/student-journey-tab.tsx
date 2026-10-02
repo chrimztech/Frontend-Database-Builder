@@ -116,13 +116,15 @@ function initials(name?: string | null) {
   return (first + last).toUpperCase();
 }
 
-/** UNZA students are identified by their student number; everyone else by NRC. */
-function identifierFor(student: JourneyRow["student"]) {
-  if (!student) return { label: "NRC", value: "—" };
-  if (student.category === "unza") {
-    return { label: "Student No.", value: student.unza_student_id || "—" };
-  }
-  return { label: "NRC", value: student.national_id || "—" };
+/** Only UNZA students have a student number; everyone else shows N/A. */
+function studentIdFor(student: JourneyRow["student"]) {
+  if (!student || student.category !== "unza") return "N/A";
+  return student.unza_student_id || "N/A";
+}
+
+/** NRC is shown for every student, UNZA or not. */
+function nrcFor(student: JourneyRow["student"]) {
+  return student?.national_id || "—";
 }
 
 async function fetchAsDataUrl(url: string): Promise<string | null> {
@@ -316,7 +318,8 @@ export function StudentJourneyTab() {
           "#",
           "Student",
           "Category",
-          "ID / NRC",
+          "Student ID",
+          "NRC",
           "Email",
           "Course",
           "Registered",
@@ -326,12 +329,12 @@ export function StudentJourneyTab() {
           "Status",
         ]],
         body: exportRows.map((row, index) => {
-          const id = identifierFor(row.student);
           return [
             String(index + 1),
             row.student?.full_name ?? "-",
             row.student ? CATEGORY_LABEL[row.student.category] : "-",
-            id.value,
+            studentIdFor(row.student),
+            nrcFor(row.student),
             row.student?.email || "—",
             row.course?.name ?? "-",
             fmtDate(row.enrolled_at),
@@ -346,16 +349,17 @@ export function StudentJourneyTab() {
         alternateRowStyles: { fillColor: [245, 247, 245] },
         columnStyles: {
           0: { cellWidth: 34, halign: "center", cellPadding: { top: 5, bottom: 5, left: 2, right: 2 } },
-          1: { cellWidth: 95 },
+          1: { cellWidth: 85 },
           2: { cellWidth: 50, halign: "center" },
-          3: { cellWidth: 70 },
-          4: { cellWidth: 110 },
-          5: { cellWidth: 85 },
-          6: { cellWidth: 58 },
+          3: { cellWidth: 55, halign: "center" },
+          4: { cellWidth: 65 },
+          5: { cellWidth: 100 },
+          6: { cellWidth: 80 },
           7: { cellWidth: 58 },
           8: { cellWidth: 58 },
-          9: { cellWidth: 62 },
-          10: { cellWidth: 55, halign: "center" },
+          9: { cellWidth: 58 },
+          10: { cellWidth: 62 },
+          11: { cellWidth: 55, halign: "center" },
         },
         didDrawPage: () => {
           doc.setFontSize(8);
@@ -514,7 +518,8 @@ export function StudentJourneyTab() {
               </TableHeader>
               <TableBody>
                 {rows.map((row, index) => {
-                  const id = identifierFor(row.student);
+                  const studentId = studentIdFor(row.student);
+                  const nrc = nrcFor(row.student);
                   const category = row.student?.category ?? "non_unza";
                   return (
                     <TableRow key={row.id}>
@@ -541,7 +546,10 @@ export function StudentJourneyTab() {
                                 {CATEGORY_LABEL[category]}
                               </Badge>
                               <span className="font-mono text-[11px] text-muted-foreground">
-                                {id.label}: {id.value}
+                                Student ID: {studentId}
+                              </span>
+                              <span className="font-mono text-[11px] text-muted-foreground">
+                                NRC: {nrc}
                               </span>
                             </div>
                           </div>
