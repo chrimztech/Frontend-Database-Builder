@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -23,12 +23,15 @@ import {
 } from "@/components/ui/table";
 import { apiGet } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   AdminEmptyState,
   AdminPageHeader,
+  AdminPagination,
   AdminPanel,
   AdminPanelHeader,
   AdminStat,
+  type PageResponse,
 } from "@/components/admin/admin-ui";
 import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
@@ -61,6 +64,13 @@ type JourneyRow = {
     prefix: string;
   } | null;
 };
+
+type CourseOption = { id: string; name: string };
+
+const PAGE_SIZE = 25;
+// Export covers the entire filtered dataset (not just the visible page) in one request —
+// comfortably above today's real-world enrolment counts.
+const EXPORT_MAX_ROWS = 20000;
 
 const STATUS_LABEL: Record<EnrolmentStatus, string> = {
   enrolled: "Registered",
@@ -95,10 +105,6 @@ function fmtDate(value: string | null) {
     month: "short",
     day: "numeric",
   });
-}
-
-function dateOnly(value: string) {
-  return value.slice(0, 10);
 }
 
 function initials(name?: string | null) {
@@ -136,64 +142,106 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
 
 export function StudentJourneyTab() {
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [courseId, setCourseId] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(0);
   const [exporting, setExporting] = useState(false);
-
-  const journey = useQuery({
-    queryKey: ["student-journey"],
-    queryFn: async () => {
-      const data = await apiGet<JourneyRow[]>("/enrolments");
-      return [...data].sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
-    },
-  });
-
-  const list = journey.data ?? [];
-
-  const courses = useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
-    for (const row of list) {
-      if (row.course) map.set(row.course.id, { id: row.course.id, name: row.course.name });
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [list]);
-
-  const query = search.trim().toLowerCase();
-
-  const filtered = list.filter((row) => {
-    if (courseId !== "all" && row.course?.id !== courseId) return false;
-    if (status !== "all" && row.status !== status) return false;
-    if (fromDate && dateOnly(row.enrolled_at) < fromDate) return false;
-    if (toDate && dateOnly(row.enrolled_at) > toDate) return false;
-    if (query) {
-      const haystack = [
-        row.student?.full_name,
-        row.student?.email,
-        row.student?.national_id,
-        row.student?.unza_student_id,
-        row.course?.name,
-        row.course?.prefix,
-        row.certificate?.certificate_code,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(query)) return false;
-    }
-    return true;
-  });
-
-  const counts = {
-    total: filtered.length,
-    learning: filtered.filter((r) => r.status === "in_progress").length,
-    awaitingCertificate: filtered.filter((r) => r.status === "completed").length,
-    certified: filtered.filter((r) => r.status === "certified").length,
-  };
 
   const hasActiveFilters =
     search.trim() !== "" || courseId !== "all" || status !== "all" || fromDate !== "" || toDate !== "";
+
+  // Shared filter params (everything except status/page/size) reused by the main
+  // query, the status breakdown, and the full-dataset PDF export.
+  function filterParams() {
+    const params = new URLSearchParams();
+    if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+    if (courseId !== "all") params.set("courseId", courseId);
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+    return params;
+  }
+
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+  function setCourseIdAndResetPage(value: string) {
+    setCourseId(value);
+    setPage(0);
+  }
+  function setStatusAndResetPage(value: string) {
+    setStatus(value);
+    setPage(0);
+  }
+  function setFromDateAndResetPage(value: string) {
+    setFromDate(value);
+    setPage(0);
+  }
+  function setToDateAndResetPage(value: string) {
+    setToDate(value);
+    setPage(0);
+  }
+
+  const journey = useQuery({
+    queryKey: ["student-journey", debouncedSearch, courseId, status, fromDate, toDate, page],
+    queryFn: async () => {
+      const params = filterParams();
+      params.set("page", String(page));
+      params.set("size", String(PAGE_SIZE));
+      if (status !== "all") params.set("status", status);
+      return apiGet<PageResponse<JourneyRow>>(`/enrolments?${params}`);
+    },
+  });
+
+  // All active courses, for the filter dropdown — independent of the current page's data.
+  const coursesList = useQuery({
+    queryKey: ["student-journey-courses"],
+    queryFn: async () => {
+      const data = await apiGet<CourseOption[]>("/courses");
+      return [...data].sort((a, b) => a.name.localeCompare(b.name));
+    },
+  });
+
+  // Status breakdown across the WHOLE filtered dataset (not just the current page).
+  const stats = useQuery({
+    queryKey: ["student-journey-stats", debouncedSearch, courseId, fromDate, toDate],
+    queryFn: async () => {
+      const base = filterParams();
+      base.set("page", "0");
+      base.set("size", "1");
+      const withStatus = (s: string) => {
+        const p = new URLSearchParams(base);
+        p.set("status", s);
+        return p;
+      };
+      const [total, learning, awaiting, certified] = await Promise.all([
+        apiGet<PageResponse<JourneyRow>>(`/enrolments?${base}`),
+        apiGet<PageResponse<JourneyRow>>(`/enrolments?${withStatus("in_progress")}`),
+        apiGet<PageResponse<JourneyRow>>(`/enrolments?${withStatus("completed")}`),
+        apiGet<PageResponse<JourneyRow>>(`/enrolments?${withStatus("certified")}`),
+      ]);
+      return {
+        total: total.total_elements,
+        learning: learning.total_elements,
+        awaitingCertificate: awaiting.total_elements,
+        certified: certified.total_elements,
+      };
+    },
+  });
+
+  const rows = journey.data?.content ?? [];
+  const totalElements = journey.data?.total_elements ?? 0;
+  const totalPages = journey.data?.total_pages ?? 0;
+  const courses = coursesList.data ?? [];
+  const counts = {
+    total: stats.data?.total ?? 0,
+    learning: stats.data?.learning ?? 0,
+    awaitingCertificate: stats.data?.awaitingCertificate ?? 0,
+    certified: stats.data?.certified ?? 0,
+  };
 
   function clearFilters() {
     setSearch("");
@@ -201,15 +249,25 @@ export function StudentJourneyTab() {
     setStatus("all");
     setFromDate("");
     setToDate("");
+    setPage(0);
   }
 
   async function exportPdf() {
-    if (filtered.length === 0) {
-      toast.error("Nothing to export — adjust your filters");
-      return;
-    }
     setExporting(true);
     try {
+      // Pull the entire filtered dataset (every page), not just what's on screen.
+      const params = filterParams();
+      params.set("page", "0");
+      params.set("size", String(EXPORT_MAX_ROWS));
+      if (status !== "all") params.set("status", status);
+      const full = await apiGet<PageResponse<JourneyRow>>(`/enrolments?${params}`);
+      const exportRows = full.content;
+
+      if (exportRows.length === 0) {
+        toast.error("Nothing to export — adjust your filters");
+        return;
+      }
+
       const [{ jsPDF }, { default: autoTable }, logoData] = await Promise.all([
         import("jspdf"),
         import("jspdf-autotable"),
@@ -248,7 +306,7 @@ export function StudentJourneyTab() {
       doc.setTextColor(110);
       const generatedAt = new Date().toLocaleString("en-GB");
       const filterNote = hasActiveFilters ? " · filtered view" : " · full list";
-      doc.text(`Generated ${generatedAt}${filterNote} — ${filtered.length} record(s)`, margin, 92);
+      doc.text(`Generated ${generatedAt}${filterNote} — ${exportRows.length} record(s)`, margin, 92);
 
       // ── Table ───────────────────────────────────────────────────────────
       autoTable(doc, {
@@ -267,7 +325,7 @@ export function StudentJourneyTab() {
           "Certificate issued",
           "Status",
         ]],
-        body: filtered.map((row, index) => {
+        body: exportRows.map((row, index) => {
           const id = identifierFor(row.student);
           return [
             String(index + 1),
@@ -371,11 +429,11 @@ export function StudentJourneyTab() {
               className="pl-9"
               placeholder="Search name, email, NRC, student no, course..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => setSearchAndResetPage(e.target.value)}
             />
           </div>
 
-          <Select value={courseId} onValueChange={setCourseId}>
+          <Select value={courseId} onValueChange={setCourseIdAndResetPage}>
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="All courses" />
             </SelectTrigger>
@@ -389,7 +447,7 @@ export function StudentJourneyTab() {
             </SelectContent>
           </Select>
 
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={setStatusAndResetPage}>
             <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
@@ -408,7 +466,7 @@ export function StudentJourneyTab() {
               type="date"
               className="w-40"
               value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
+              onChange={(e) => setFromDateAndResetPage(e.target.value)}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -417,7 +475,7 @@ export function StudentJourneyTab() {
               type="date"
               className="w-40"
               value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+              onChange={(e) => setToDateAndResetPage(e.target.value)}
             />
           </div>
 
@@ -431,7 +489,7 @@ export function StudentJourneyTab() {
         <div className="px-5 py-5 sm:px-6">
           {journey.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading student journey...</div>
-          ) : filtered.length === 0 ? (
+          ) : rows.length === 0 ? (
             <AdminEmptyState
               title={hasActiveFilters ? "No matches" : "No enrolments yet"}
               description={
@@ -455,13 +513,13 @@ export function StudentJourneyTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((row, index) => {
+                {rows.map((row, index) => {
                   const id = identifierFor(row.student);
                   const category = row.student?.category ?? "non_unza";
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                        {index + 1}
+                        {page * PAGE_SIZE + index + 1}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-start gap-3">
@@ -506,6 +564,13 @@ export function StudentJourneyTab() {
             </Table>
           )}
         </div>
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </AdminPanel>
     </div>
   );
