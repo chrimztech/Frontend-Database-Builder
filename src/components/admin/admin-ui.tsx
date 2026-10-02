@@ -1,7 +1,74 @@
 import { type ComponentType, type ReactNode } from "react";
-import { Inbox } from "lucide-react";
+import { ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+
+/** Standard shape returned by every paginated backend list endpoint. */
+export type PageResponse<T> = {
+  content: T[];
+  total_elements: number;
+  total_pages: number;
+  number: number;
+  size: number;
+};
+
+export function AdminPagination({
+  page,
+  totalPages,
+  totalElements,
+  pageSize,
+  onPageChange,
+  className,
+}: {
+  page: number;
+  totalPages: number;
+  totalElements: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+}) {
+  if (totalElements === 0) return null;
+
+  const from = page * pageSize + 1;
+  const to = Math.min((page + 1) * pageSize, totalElements);
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-5 py-3 sm:px-6",
+        className,
+      )}
+    >
+      <p className="text-xs text-muted-foreground">
+        Showing <span className="font-medium text-foreground">{from}</span>–
+        <span className="font-medium text-foreground">{to}</span> of{" "}
+        <span className="font-medium text-foreground">{totalElements.toLocaleString()}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={page <= 0}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Page {page + 1} of {Math.max(totalPages, 1)}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={page + 1 >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function AdminPageHeader({
   eyebrow = "Workspace",

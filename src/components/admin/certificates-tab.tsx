@@ -41,12 +41,15 @@ import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { verificationUrl } from "@/lib/cert";
 import { toTitleCaseName } from "@/lib/text";
 import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from "@/lib/certificate-delivery";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   AdminEmptyState,
   AdminPageHeader,
+  AdminPagination,
   AdminPanel,
   AdminPanelHeader,
   AdminStat,
+  type PageResponse,
 } from "@/components/admin/admin-ui";
 
 type Cert = {
@@ -67,38 +70,58 @@ type Cert = {
   pdf_path?: string | null;
 };
 
+const PAGE_SIZE = 25;
+
 export function CertificatesTab() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
+  const [page, setPage] = useState(0);
 
   const certs = useQuery({
-    queryKey: ["admin-certs"],
+    queryKey: ["admin-certs", debouncedSearch, page],
     queryFn: async () => {
-      const data = await apiGet<Cert[]>("/certificates");
-      return [...data].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      return apiGet<PageResponse<Cert>>(`/certificates?${params}`);
     },
   });
 
-  const list = certs.data ?? [];
-  const filtered = list.filter((cert) => {
-    if (!search.trim()) {
-      return true;
-    }
-
-    const query = search.toLowerCase();
-    const code = getCertificateCode(cert).toLowerCase();
-    return (
-      code.includes(query) ||
-      cert.recipient_name.toLowerCase().includes(query) ||
-      cert.programme.toLowerCase().includes(query) ||
-      (cert.recipient_email ?? "").toLowerCase().includes(query)
-    );
+  // Lightweight breakdown across the whole registry (not just the current page/filter).
+  const breakdown = useQuery({
+    queryKey: ["admin-certs-breakdown"],
+    queryFn: async () => {
+      const [all, valid, revoked, sent] = await Promise.all([
+        apiGet<PageResponse<Cert>>("/certificates?page=0&size=1"),
+        apiGet<PageResponse<Cert>>("/certificates?page=0&size=1&status=valid"),
+        apiGet<PageResponse<Cert>>("/certificates?page=0&size=1&status=revoked"),
+        apiGet<PageResponse<Cert>>("/certificates?page=0&size=1&emailStatus=sent"),
+      ]);
+      return {
+        total: all.total_elements,
+        valid: valid.total_elements,
+        revoked: revoked.total_elements,
+        sent: sent.total_elements,
+      };
+    },
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-certs"] });
-  const validCount = list.filter((cert) => cert.status === "valid").length;
-  const revokedCount = list.filter((cert) => cert.status === "revoked").length;
-  const sentCount = list.filter((cert) => cert.email_status === "sent").length;
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+
+  const filtered = certs.data?.content ?? [];
+  const totalElements = certs.data?.total_elements ?? 0;
+  const totalPages = certs.data?.total_pages ?? 0;
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-certs"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-certs-breakdown"] });
+  };
+  const validCount = breakdown.data?.valid ?? 0;
+  const revokedCount = breakdown.data?.revoked ?? 0;
+  const sentCount = breakdown.data?.sent ?? 0;
 
   return (
     <div className="space-y-8">
@@ -111,7 +134,7 @@ export function CertificatesTab() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminStat
           label="Issued"
-          value={list.length}
+          value={breakdown.data?.total ?? 0}
           hint="Total certificate records in the registry"
         />
         <AdminStat
@@ -142,7 +165,7 @@ export function CertificatesTab() {
                 className="pl-9"
                 placeholder="Search certificates..."
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => setSearchAndResetPage(event.target.value)}
               />
             </div>
           }
@@ -156,7 +179,7 @@ export function CertificatesTab() {
               icon={ShieldCheck}
               title="No certificates found"
               description={
-                list.length === 0
+                (breakdown.data?.total ?? 0) === 0
                   ? "Generate a certificate from the enrolments workflow to populate this registry."
                   : "Try a different search term to find the certificate you need."
               }
@@ -182,6 +205,13 @@ export function CertificatesTab() {
             </Table>
           )}
         </div>
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </AdminPanel>
     </div>
   );

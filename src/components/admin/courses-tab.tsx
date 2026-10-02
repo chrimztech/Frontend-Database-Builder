@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,12 +35,15 @@ import {
 } from "@/components/ui/table";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { CERTIFICATE_TYPES, certificateTypeLabel, type CertificateTypeValue } from "@/lib/certificate-types";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   AdminEmptyState,
   AdminPageHeader,
+  AdminPagination,
   AdminPanel,
   AdminPanelHeader,
   AdminStat,
+  type PageResponse,
 } from "@/components/admin/admin-ui";
 
 export type CourseCategory =
@@ -97,26 +100,61 @@ function fmtZmw(value: number | null) {
   })}`;
 }
 
+const PAGE_SIZE = 25;
+
 export function CoursesTab() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<"all" | CourseCategory>("all");
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
+  const [page, setPage] = useState(0);
 
   const courses = useQuery({
-    queryKey: ["admin-courses"],
+    queryKey: ["admin-courses", debouncedSearch, filter, page],
     queryFn: async () => {
-      const data = await apiGet<Course[]>("/courses");
-      return [...data].sort(
-        (a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name),
-      );
+      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      if (filter !== "all") params.set("category", filter);
+      return apiGet<PageResponse<Course>>(`/courses?${params}`);
     },
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
-  const list = (courses.data ?? []).filter(
-    (course) => filter === "all" || course.category === filter,
-  );
-  const fullList = courses.data ?? [];
-  const activeCount = fullList.filter((course) => course.active).length;
+  // Lightweight breakdown across the whole catalogue (not just the current page/filter).
+  const breakdown = useQuery({
+    queryKey: ["admin-courses-breakdown"],
+    queryFn: async () => {
+      const [all, active, shortCourse, selfPaced] = await Promise.all([
+        apiGet<PageResponse<Course>>("/courses?page=0&size=1"),
+        apiGet<PageResponse<Course>>("/courses?page=0&size=1&active=true"),
+        apiGet<PageResponse<Course>>("/courses?page=0&size=1&category=short_course"),
+        apiGet<PageResponse<Course>>("/courses?page=0&size=1&category=self_paced"),
+      ]);
+      return {
+        total: all.total_elements,
+        active: active.total_elements,
+        shortCourse: shortCourse.total_elements,
+        selfPaced: selfPaced.total_elements,
+      };
+    },
+  });
+
+  function setFilterAndResetPage(value: "all" | CourseCategory) {
+    setFilter(value);
+    setPage(0);
+  }
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-courses-breakdown"] });
+  };
+  const list = courses.data?.content ?? [];
+  const totalElements = courses.data?.total_elements ?? 0;
+  const totalPages = courses.data?.total_pages ?? 0;
+  const activeCount = breakdown.data?.active ?? 0;
 
   return (
     <div className="space-y-8">
@@ -128,16 +166,16 @@ export function CoursesTab() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <AdminStat label="Courses" value={fullList.length} hint="Total catalogue entries available in the system" />
+        <AdminStat label="Courses" value={breakdown.data?.total ?? 0} hint="Total catalogue entries available in the system" />
         <AdminStat label="Active" value={activeCount} hint="Courses currently available for enrolment" />
         <AdminStat
           label="Short courses"
-          value={fullList.filter((course) => course.category === "short_course").length}
+          value={breakdown.data?.shortCourse ?? 0}
           hint="Short-format offerings"
         />
         <AdminStat
           label="Self-paced"
-          value={fullList.filter((course) => course.category === "self_paced").length}
+          value={breakdown.data?.selfPaced ?? 0}
           hint="Courses that can run with flexible scheduling"
         />
       </div>
@@ -147,18 +185,29 @@ export function CoursesTab() {
           title="Course records"
           description="Filter by delivery category and review fee tiers, activation state, and certificate prefix setup."
           actions={
-            <Select value={filter} onValueChange={(value) => setFilter(value as "all" | CourseCategory)}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
-                <SelectItem value="self_paced">Self-paced</SelectItem>
-                <SelectItem value="short_course">Short course</SelectItem>
-                <SelectItem value="special_schedule">Special schedule</SelectItem>
-                <SelectItem value="professional_diploma">Professional diploma</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Select value={filter} onValueChange={(value) => setFilterAndResetPage(value as "all" | CourseCategory)}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  <SelectItem value="self_paced">Self-paced</SelectItem>
+                  <SelectItem value="short_course">Short course</SelectItem>
+                  <SelectItem value="special_schedule">Special schedule</SelectItem>
+                  <SelectItem value="professional_diploma">Professional diploma</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search courses..."
+                  value={search}
+                  onChange={(event) => setSearchAndResetPage(event.target.value)}
+                />
+              </div>
+            </div>
           }
         />
 
@@ -169,9 +218,9 @@ export function CoursesTab() {
             <AdminEmptyState
               title="No courses match this filter"
               description={
-                fullList.length === 0
+                (breakdown.data?.total ?? 0) === 0
                   ? "Add your first course to begin building the training catalogue."
-                  : "Adjust the category filter to see a different part of the course catalogue."
+                  : "Adjust the category filter or search term to see a different part of the course catalogue."
               }
             />
           ) : (
@@ -197,6 +246,13 @@ export function CoursesTab() {
             </Table>
           )}
         </div>
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </AdminPanel>
     </div>
   );

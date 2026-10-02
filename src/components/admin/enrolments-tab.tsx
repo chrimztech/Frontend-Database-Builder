@@ -51,10 +51,13 @@ import { generateCertificate as generateCertificateServer } from "@/lib/api/cert
 import {
   AdminEmptyState,
   AdminPageHeader,
+  AdminPagination,
   AdminPanel,
   AdminPanelHeader,
   AdminStat,
+  type PageResponse,
 } from "@/components/admin/admin-ui";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
 type EnrolmentStatus = "enrolled" | "in_progress" | "completed" | "certified";
@@ -120,53 +123,76 @@ function fmtZmw(value: number | null) {
   })}`;
 }
 
+const PAGE_SIZE = 25;
+
 export function EnrolmentsTab() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"all" | EnrolmentStatus>("all");
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
+  const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const enrolments = useQuery({
-    queryKey: ["admin-enrolments"],
+    queryKey: ["admin-enrolments", debouncedSearch, tab, page],
     queryFn: async () => {
-      const data = await apiGet<Enrolment[]>("/enrolments");
-      return [...data].sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
+      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      if (tab !== "all") params.set("status", tab);
+      return apiGet<PageResponse<Enrolment>>(`/enrolments?${params}`);
+    },
+  });
+
+  // Status counts across the whole dataset (not just the current page/filter) for the tab badges.
+  const statusCounts = useQuery({
+    queryKey: ["admin-enrolments-counts"],
+    queryFn: async () => {
+      const [all, enrolled, inProgress, completed, certified] = await Promise.all([
+        apiGet<PageResponse<Enrolment>>("/enrolments?page=0&size=1"),
+        apiGet<PageResponse<Enrolment>>("/enrolments?page=0&size=1&status=enrolled"),
+        apiGet<PageResponse<Enrolment>>("/enrolments?page=0&size=1&status=in_progress"),
+        apiGet<PageResponse<Enrolment>>("/enrolments?page=0&size=1&status=completed"),
+        apiGet<PageResponse<Enrolment>>("/enrolments?page=0&size=1&status=certified"),
+      ]);
+      return {
+        all: all.total_elements,
+        enrolled: enrolled.total_elements,
+        in_progress: inProgress.total_elements,
+        completed: completed.total_elements,
+        certified: certified.total_elements,
+      };
     },
   });
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-enrolments"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-enrolments-counts"] });
     queryClient.invalidateQueries({ queryKey: ["admin-certs"] });
     queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
     setSelectedIds(new Set());
   };
 
-  const list = enrolments.data ?? [];
-  const byStatus = tab === "all" ? list : list.filter((row) => row.status === tab);
-  const query = search.trim().toLowerCase();
-  const filtered = !query
-    ? byStatus
-    : byStatus.filter((row) => {
-        const haystack = [
-          row.student?.full_name,
-          row.student?.email,
-          row.student?.national_id,
-          row.course?.name,
-          row.course?.prefix,
-          row.certificate?.certificate_code,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      });
+  function setTabAndResetPage(value: "all" | EnrolmentStatus) {
+    setTab(value);
+    setPage(0);
+    setSelectedIds(new Set());
+  }
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+
+  const filtered = enrolments.data?.content ?? [];
+  const totalElements = enrolments.data?.total_elements ?? 0;
+  const totalPages = enrolments.data?.total_pages ?? 0;
+  const query = debouncedSearch.trim();
   const counts = {
-    all: list.length,
-    enrolled: list.filter((r) => r.status === "enrolled").length,
-    in_progress: list.filter((r) => r.status === "in_progress").length,
-    completed: list.filter((r) => r.status === "completed").length,
-    certified: list.filter((r) => r.status === "certified").length,
+    all: statusCounts.data?.all ?? 0,
+    enrolled: statusCounts.data?.enrolled ?? 0,
+    in_progress: statusCounts.data?.in_progress ?? 0,
+    completed: statusCounts.data?.completed ?? 0,
+    certified: statusCounts.data?.certified ?? 0,
   };
 
   // Enrolled rows can be bulk-started, in-progress rows can be bulk-completed —
@@ -240,7 +266,7 @@ export function EnrolmentsTab() {
         <AdminStat label="Certified" value={counts.certified} hint="Learners already issued a certificate" />
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => { setTab(v as "all" | EnrolmentStatus); setSelectedIds(new Set()); }}>
+      <Tabs value={tab} onValueChange={(v) => setTabAndResetPage(v as "all" | EnrolmentStatus)}>
         <TabsList>
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           <TabsTrigger value="enrolled">Enrolled ({counts.enrolled})</TabsTrigger>
@@ -261,7 +287,7 @@ export function EnrolmentsTab() {
                     className="pl-9"
                     placeholder="Search by student, email, NRC, or course..."
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => setSearchAndResetPage(event.target.value)}
                   />
                 </div>
               }
@@ -339,6 +365,13 @@ export function EnrolmentsTab() {
                 </Table>
               )}
             </div>
+            <AdminPagination
+              page={page}
+              totalPages={totalPages}
+              totalElements={totalElements}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
           </AdminPanel>
         </TabsContent>
       </Tabs>

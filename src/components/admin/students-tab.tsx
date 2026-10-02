@@ -45,12 +45,15 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { toTitleCaseName } from "@/lib/text";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   AdminEmptyState,
   AdminPageHeader,
+  AdminPagination,
   AdminPanel,
   AdminPanelHeader,
   AdminStat,
+  type PageResponse,
 } from "@/components/admin/admin-ui";
 import { CsvImportDialog } from "@/components/admin/csv-import-dialog";
 import { EnrolDialog } from "@/components/admin/enrolments-tab";
@@ -120,42 +123,62 @@ async function logAccess(
   }).catch(() => {});
 }
 
+const PAGE_SIZE = 25;
+
 export function StudentsTab() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [category, setCategory] = useState<"all" | StudentCategory>("all");
+  const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const students = useQuery({
-    queryKey: ["admin-students"],
+    queryKey: ["admin-students", debouncedSearch, category, page],
     queryFn: async () => {
-      const data = await apiGet<Student[]>("/students");
-      return [...data].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      if (category !== "all") params.set("category", category);
+      return apiGet<PageResponse<Student>>(`/students?${params}`);
     },
   });
 
-  const fullList = students.data ?? [];
-  const filtered = fullList.filter((student) => {
-    if (category !== "all" && student.category !== category) return false;
-    if (!search.trim()) return true;
-    const query = search.toLowerCase();
-    return (
-      student.full_name.toLowerCase().includes(query) ||
-      (student.email ?? "").toLowerCase().includes(query) ||
-      (student.national_id ?? "").toLowerCase().includes(query) ||
-      (student.unza_student_id ?? "").toLowerCase().includes(query)
-    );
+  // Lightweight category breakdown for the stat cards — independent of the current filter/page.
+  const breakdown = useQuery({
+    queryKey: ["admin-students-breakdown"],
+    queryFn: async () => {
+      const [all, unza, nonUnza] = await Promise.all([
+        apiGet<PageResponse<Student>>("/students?page=0&size=1"),
+        apiGet<PageResponse<Student>>("/students?page=0&size=1&category=unza"),
+        apiGet<PageResponse<Student>>("/students?page=0&size=1&category=non_unza"),
+      ]);
+      return { total: all.total_elements, unza: unza.total_elements, nonUnza: nonUnza.total_elements };
+    },
   });
+
+  const filtered = students.data?.content ?? [];
+  const totalElements = students.data?.total_elements ?? 0;
+  const totalPages = students.data?.total_pages ?? 0;
+
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+  function setCategoryAndResetPage(value: "all" | StudentCategory) {
+    setCategory(value);
+    setPage(0);
+  }
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-students"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-students-breakdown"] });
     setSelectedIds(new Set());
   };
   const counts = {
-    total:   fullList.length,
-    unza:    fullList.filter((student) => student.category === "unza").length,
-    nonUnza: fullList.filter((student) => student.category === "non_unza").length,
+    total:   breakdown.data?.total ?? 0,
+    unza:    breakdown.data?.unza ?? 0,
+    nonUnza: breakdown.data?.nonUnza ?? 0,
   };
 
   const allSelected = filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id));
@@ -179,7 +202,7 @@ export function StudentsTab() {
     let ok = 0;
     let fail = 0;
     for (const id of selectedIds) {
-      const student = fullList.find((s) => s.id === id);
+      const student = filtered.find((s) => s.id === id);
       try {
         await logAccess("delete", id, student?.full_name);
         await apiDelete(`/students/${id}`);
@@ -223,7 +246,7 @@ export function StudentsTab() {
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <Select
                 value={category}
-                onValueChange={(value) => setCategory(value as "all" | StudentCategory)}
+                onValueChange={(value) => setCategoryAndResetPage(value as "all" | StudentCategory)}
               >
                 <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue />
@@ -239,7 +262,7 @@ export function StudentsTab() {
                 <Input
                   placeholder="Search students..."
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => setSearchAndResetPage(event.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -274,7 +297,7 @@ export function StudentsTab() {
             <AdminEmptyState
               title="No students match"
               description={
-                fullList.length === 0
+                counts.total === 0
                   ? "Add the first student record to begin managing enrolments and certification."
                   : "Try a different filter or search term to find the student record you need."
               }
@@ -284,7 +307,7 @@ export function StudentsTab() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
-                    <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label="Select all" />
+                    <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label="Select all on this page" />
                   </TableHead>
                   <TableHead className="w-8" />
                   <TableHead>Name</TableHead>
@@ -309,6 +332,13 @@ export function StudentsTab() {
             </Table>
           )}
         </div>
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </AdminPanel>
     </div>
   );

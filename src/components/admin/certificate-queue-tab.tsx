@@ -1,13 +1,23 @@
 ﻿import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Send, RefreshCw } from 'lucide-react';
+import { Search, Send, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiGet } from '@/lib/api';
 import { updateCertificatesStatus } from '@/lib/api/certificates.functions';
 import { certificateSendErrorMessage, sendCertificateEmailWithRepair } from '@/lib/certificate-delivery';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { AdminPagination, type PageResponse } from '@/components/admin/admin-ui';
 
 type EmailStatus = 'not_sent' | 'queued' | 'sent' | 'failed';
 type QueueCertificate = {
@@ -36,18 +46,47 @@ const STATUS_LABEL: Record<EmailStatus, string> = {
   not_sent: 'Not sent', queued: 'Queued', sent: 'Sent', failed: 'Failed',
 };
 
+const PAGE_SIZE = 25;
+const STATUS_FILTER_TO_PARAM: Record<string, string | undefined> = {
+  all: undefined,
+  not_sent: 'not_sent',
+  queued: 'queued',
+  sent: 'sent',
+  failed: 'failed',
+};
+
 export function CertificateQueueTab() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search);
+  const [statusFilter, setStatusFilter] = useState<'all' | EmailStatus>('all');
+  const [page, setPage] = useState(0);
 
   const q = useQuery({
-    queryKey: ['certificate-queue'],
+    queryKey: ['certificate-queue', debouncedSearch, statusFilter, page],
     queryFn: async () => {
-      const data = await apiGet<QueueCertificate[]>('/certificates');
-      return [...data].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
+      const emailStatus = STATUS_FILTER_TO_PARAM[statusFilter];
+      if (emailStatus) params.set('emailStatus', emailStatus);
+      return apiGet<PageResponse<QueueCertificate>>(`/certificates?${params}`);
     },
   });
+
+  const rows = q.data?.content ?? [];
+  const totalElements = q.data?.total_elements ?? 0;
+  const totalPages = q.data?.total_pages ?? 0;
+
+  function setSearchAndResetPage(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+  function setStatusFilterAndResetPage(value: 'all' | EmailStatus) {
+    setStatusFilter(value);
+    setPage(0);
+  }
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['certificate-queue'] });
@@ -88,7 +127,7 @@ export function CertificateQueueTab() {
   async function sendSelected() {
     if (!selectedIds.length) return toast.error('No certificates selected');
     let ok = 0; let fail = 0;
-    const selectedCerts = (q.data ?? []).filter((c) => selectedIds.includes(c.id));
+    const selectedCerts = rows.filter((c) => selectedIds.includes(c.id));
     for (const cert of selectedCerts) {
       setSending((s) => ({ ...s, [cert.id]: true }));
       try {
@@ -119,7 +158,7 @@ export function CertificateQueueTab() {
     if (fail > 0) toast.error(`${fail} failed - check those rows`);
   }
 
-  const unsent = (q.data ?? []).filter((c) => c.email_status !== 'sent');
+  const unsent = rows.filter((c) => c.email_status !== 'sent');
   const allSelected = unsent.length > 0 && unsent.every((c) => selected[c.id]);
 
   function toggleAll() {
@@ -138,6 +177,27 @@ export function CertificateQueueTab() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search recipient, email, code..."
+              value={search}
+              onChange={(e) => setSearchAndResetPage(e.target.value)}
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilterAndResetPage(v as 'all' | EmailStatus)}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="not_sent">Not sent</SelectItem>
+              <SelectItem value="queued">Queued</SelectItem>
+              <SelectItem value="sent">Sent</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="sm" onClick={refresh}>
             <RefreshCw className="h-4 w-4 mr-1" /> Refresh
           </Button>
@@ -156,7 +216,7 @@ export function CertificateQueueTab() {
       <div className="surface-panel rounded-xl overflow-hidden">
         {q.isLoading ? (
           <div className="p-10 text-center text-sm text-muted-foreground">Loading...</div>
-        ) : (q.data ?? []).length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">No certificates found.</div>
         ) : (
           <Table>
@@ -174,7 +234,7 @@ export function CertificateQueueTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(q.data ?? []).map((c) => {
+              {rows.map((c) => {
                 const isBusy = !!sending[c.id];
                 const code = c.certificate_code ?? c.certificate_id ?? '-';
                 const status: EmailStatus = c.email_status ?? 'not_sent';
@@ -225,6 +285,13 @@ export function CertificateQueueTab() {
             </TableBody>
           </Table>
         )}
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </div>
 
       <p className="text-xs text-muted-foreground">
