@@ -1,8 +1,16 @@
-import { type ComponentType, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { type ComponentType, type ReactNode, useState } from "react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Inbox } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /** Standard shape returned by every paginated backend list endpoint. */
 export type PageResponse<T> = {
@@ -13,12 +21,36 @@ export type PageResponse<T> = {
   size: number;
 };
 
+export const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+/** 0-indexed page numbers to render, with `null` standing in for an ellipsis gap. */
+function buildPageNumbers(page: number, totalPages: number): (number | null)[] {
+  const last = totalPages - 1;
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i);
+  }
+
+  const window = new Set<number>([0, last, page]);
+  if (page > 0) window.add(page - 1);
+  if (page < last) window.add(page + 1);
+
+  const sorted = [...window].sort((a, b) => a - b);
+  const result: (number | null)[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && sorted[i] - sorted[i - 1] > 1) result.push(null);
+    result.push(sorted[i]);
+  }
+  return result;
+}
+
 export function AdminPagination({
   page,
   totalPages,
   totalElements,
   pageSize,
   onPageChange,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  onPageSizeChange,
   className,
 }: {
   page: number;
@@ -26,12 +58,27 @@ export function AdminPagination({
   totalElements: number;
   pageSize: number;
   onPageChange: (page: number) => void;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (size: number) => void;
   className?: string;
 }) {
+  const [jumpTo, setJumpTo] = useState("");
+
   if (totalElements === 0) return null;
 
+  const lastPage = Math.max(totalPages - 1, 0);
   const from = page * pageSize + 1;
   const to = Math.min((page + 1) * pageSize, totalElements);
+  const pageNumbers = buildPageNumbers(page, totalPages);
+
+  function submitJump(e: React.FormEvent) {
+    e.preventDefault();
+    const n = Number(jumpTo);
+    if (Number.isInteger(n) && n >= 1 && n <= totalPages) {
+      onPageChange(n - 1);
+    }
+    setJumpTo("");
+  }
 
   return (
     <div
@@ -40,31 +87,110 @@ export function AdminPagination({
         className,
       )}
     >
-      <p className="text-xs text-muted-foreground">
-        Showing <span className="font-medium text-foreground">{from}</span>–
-        <span className="font-medium text-foreground">{to}</span> of{" "}
-        <span className="font-medium text-foreground">{totalElements.toLocaleString()}</span>
-      </p>
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={page <= 0}
-          onClick={() => onPageChange(page - 1)}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          Page {page + 1} of {Math.max(totalPages, 1)}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={page + 1 >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+      <div className="flex flex-wrap items-center gap-4">
+        <p className="text-xs text-muted-foreground">
+          Showing <span className="font-medium text-foreground">{from}</span>–
+          <span className="font-medium text-foreground">{to}</span> of{" "}
+          <span className="font-medium text-foreground">{totalElements.toLocaleString()}</span>
+        </p>
+        {onPageSizeChange && (
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground">Rows per page</label>
+            <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+              <SelectTrigger className="h-7 w-[68px] px-2 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7"
+            disabled={page <= 0}
+            onClick={() => onPageChange(0)}
+            aria-label="First page"
+          >
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7"
+            disabled={page <= 0}
+            onClick={() => onPageChange(page - 1)}
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+
+          {pageNumbers.map((p, i) =>
+            p === null ? (
+              <span key={`gap-${i}`} className="px-1 text-xs text-muted-foreground">
+                …
+              </span>
+            ) : (
+              <Button
+                key={p}
+                size="sm"
+                variant={p === page ? "default" : "outline"}
+                className="h-7 min-w-7 px-2 text-xs"
+                onClick={() => onPageChange(p)}
+                aria-label={`Page ${p + 1}`}
+                aria-current={p === page ? "page" : undefined}
+              >
+                {p + 1}
+              </Button>
+            ),
+          )}
+
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7"
+            disabled={page + 1 >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            aria-label="Next page"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7"
+            disabled={page + 1 >= totalPages}
+            onClick={() => onPageChange(lastPage)}
+            aria-label="Last page"
+          >
+            <ChevronsRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+        {totalPages > 7 && (
+          <form onSubmit={submitJump} className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground">Go to</label>
+            <Input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={jumpTo}
+              onChange={(e) => setJumpTo(e.target.value)}
+              placeholder={String(page + 1)}
+              className="h-7 w-16 px-2 text-xs"
+            />
+          </form>
+        )}
       </div>
     </div>
   );

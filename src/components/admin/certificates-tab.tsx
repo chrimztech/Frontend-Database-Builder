@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Ban,
   CheckCircle2,
@@ -70,21 +70,21 @@ type Cert = {
   pdf_path?: string | null;
 };
 
-const PAGE_SIZE = 25;
-
 export function CertificatesTab() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const certs = useQuery({
-    queryKey: ["admin-certs", debouncedSearch, page],
+    queryKey: ["admin-certs", debouncedSearch, page, pageSize],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       return apiGet<PageResponse<Cert>>(`/certificates?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   // Lightweight breakdown across the whole registry (not just the current page/filter).
@@ -209,8 +209,12 @@ export function CertificatesTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </AdminPanel>
     </div>

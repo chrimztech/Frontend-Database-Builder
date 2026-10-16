@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Download, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -67,7 +67,6 @@ type JourneyRow = {
 
 type CourseOption = { id: string; name: string };
 
-const PAGE_SIZE = 25;
 // Export covers the entire filtered dataset (not just the visible page) in one request —
 // comfortably above today's real-world enrolment counts.
 const EXPORT_MAX_ROWS = 20000;
@@ -150,6 +149,7 @@ export function StudentJourneyTab() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [exporting, setExporting] = useState(false);
 
   const hasActiveFilters =
@@ -188,14 +188,15 @@ export function StudentJourneyTab() {
   }
 
   const journey = useQuery({
-    queryKey: ["student-journey", debouncedSearch, courseId, status, fromDate, toDate, page],
+    queryKey: ["student-journey", debouncedSearch, courseId, status, fromDate, toDate, page, pageSize],
     queryFn: async () => {
       const params = filterParams();
       params.set("page", String(page));
-      params.set("size", String(PAGE_SIZE));
+      params.set("size", String(pageSize));
       if (status !== "all") params.set("status", status);
       return apiGet<PageResponse<JourneyRow>>(`/enrolments?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   // All active courses, for the filter dropdown — independent of the current page's data.
@@ -524,7 +525,7 @@ export function StudentJourneyTab() {
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                        {page * PAGE_SIZE + index + 1}
+                        {page * pageSize + index + 1}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-start gap-3">
@@ -576,8 +577,12 @@ export function StudentJourneyTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </AdminPanel>
     </div>

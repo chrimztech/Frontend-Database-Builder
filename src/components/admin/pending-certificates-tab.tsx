@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Award, CheckCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -41,23 +41,23 @@ async function generateCertificateWithPdf(enrolment: PendingEnrolment) {
   return cert;
 }
 
-const PAGE_SIZE = 25;
-
 export function PendingCertificatesTab() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busyOne, setBusyOne] = useState<Record<string, boolean>>({});
   const [bulkBusy, setBulkBusy] = useState(false);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const pending = useQuery({
-    queryKey: ['pending-certificates', page],
+    queryKey: ['pending-certificates', page, pageSize],
     queryFn: async () => {
       // enrolments completed/certified and not linked to a certificate
       return apiGet<PageResponse<PendingEnrolment>>(
-        `/enrolments?statusIn=completed&statusIn=certified&noCertificate=true&page=${page}&size=${PAGE_SIZE}`,
+        `/enrolments?statusIn=completed&statusIn=certified&noCertificate=true&page=${page}&size=${pageSize}`,
       );
     },
+    placeholderData: keepPreviousData,
   });
 
   const rows = pending.data?.content ?? [];
@@ -198,8 +198,12 @@ export function PendingCertificatesTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </div>
     </div>

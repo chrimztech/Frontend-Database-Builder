@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Search, Send, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,6 @@ const STATUS_LABEL: Record<EmailStatus, string> = {
   not_sent: 'Not sent', queued: 'Queued', sent: 'Sent', failed: 'Failed',
 };
 
-const PAGE_SIZE = 25;
 const STATUS_FILTER_TO_PARAM: Record<string, string | undefined> = {
   all: undefined,
   not_sent: 'not_sent',
@@ -63,16 +62,18 @@ export function CertificateQueueTab() {
   const debouncedSearch = useDebouncedValue(search);
   const [statusFilter, setStatusFilter] = useState<'all' | EmailStatus>('all');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const q = useQuery({
-    queryKey: ['certificate-queue', debouncedSearch, statusFilter, page],
+    queryKey: ['certificate-queue', debouncedSearch, statusFilter, page, pageSize],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
       if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
       const emailStatus = STATUS_FILTER_TO_PARAM[statusFilter];
       if (emailStatus) params.set('emailStatus', emailStatus);
       return apiGet<PageResponse<QueueCertificate>>(`/certificates?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   const rows = q.data?.content ?? [];
@@ -289,8 +290,12 @@ export function CertificateQueueTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </div>
 

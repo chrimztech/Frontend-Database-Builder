@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -100,23 +100,23 @@ function fmtZmw(value: number | null) {
   })}`;
 }
 
-const PAGE_SIZE = 25;
-
 export function CoursesTab() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<"all" | CourseCategory>("all");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const courses = useQuery({
-    queryKey: ["admin-courses", debouncedSearch, filter, page],
+    queryKey: ["admin-courses", debouncedSearch, filter, page, pageSize],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       if (filter !== "all") params.set("category", filter);
       return apiGet<PageResponse<Course>>(`/courses?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   // Lightweight breakdown across the whole catalogue (not just the current page/filter).
@@ -250,8 +250,12 @@ export function CoursesTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </AdminPanel>
     </div>

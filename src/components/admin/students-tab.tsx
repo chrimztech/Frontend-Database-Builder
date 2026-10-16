@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Award,
   ChevronDown,
@@ -123,25 +123,25 @@ async function logAccess(
   }).catch(() => {});
 }
 
-const PAGE_SIZE = 25;
-
 export function StudentsTab() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [category, setCategory] = useState<"all" | StudentCategory>("all");
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const students = useQuery({
-    queryKey: ["admin-students", debouncedSearch, category, page],
+    queryKey: ["admin-students", debouncedSearch, category, page, pageSize],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       if (category !== "all") params.set("category", category);
       return apiGet<PageResponse<Student>>(`/students?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   // Lightweight category breakdown for the stat cards — independent of the current filter/page.
@@ -336,8 +336,12 @@ export function StudentsTab() {
           page={page}
           totalPages={totalPages}
           totalElements={totalElements}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
         />
       </AdminPanel>
     </div>

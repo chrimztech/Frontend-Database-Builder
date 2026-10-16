@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { ArrowRight, Award, Check, CheckCheck, ChevronsUpDown, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -123,25 +123,25 @@ function fmtZmw(value: number | null) {
   })}`;
 }
 
-const PAGE_SIZE = 25;
-
 export function EnrolmentsTab() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"all" | EnrolmentStatus>("all");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const enrolments = useQuery({
-    queryKey: ["admin-enrolments", debouncedSearch, tab, page],
+    queryKey: ["admin-enrolments", debouncedSearch, tab, page, pageSize],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       if (tab !== "all") params.set("status", tab);
       return apiGet<PageResponse<Enrolment>>(`/enrolments?${params}`);
     },
+    placeholderData: keepPreviousData,
   });
 
   // Status counts across the whole dataset (not just the current page/filter) for the tab badges.
@@ -369,8 +369,12 @@ export function EnrolmentsTab() {
               page={page}
               totalPages={totalPages}
               totalElements={totalElements}
-              pageSize={PAGE_SIZE}
+              pageSize={pageSize}
               onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(0);
+              }}
             />
           </AdminPanel>
         </TabsContent>
