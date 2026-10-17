@@ -1,7 +1,7 @@
 ﻿import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowRight, Search, Tag, UserCheck } from "lucide-react";
+import { ArrowRight, Download, Search, Tag, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,8 +10,63 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiGet, apiPut } from "@/lib/api";
+import unzaLogo from "@/assets/unza-logo.png.asset.json";
 
 type StudentCategory = "unza" | "non_unza";
+type PaymentStatus = "pending" | "paid" | "waived" | "free";
+
+type StudentEnrolment = {
+  id: string;
+  status: "enrolled" | "in_progress" | "completed" | "certified";
+  enrolled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  fee_charged: number | null;
+  payment_status: PaymentStatus;
+  course: { id: string; name: string; prefix?: string; code?: string } | null;
+  certificate: { certificate_code: string | null; issue_date: string | null } | null;
+};
+
+const PAY_LABEL: Record<PaymentStatus, string> = {
+  pending: "Pending",
+  paid: "Paid",
+  waived: "Waived",
+  free: "Free",
+};
+
+const PAY_TONE: Record<PaymentStatus, string> = {
+  pending: "bg-amber-500/15 text-amber-700",
+  paid: "bg-emerald-500/15 text-emerald-700",
+  waived: "bg-muted text-muted-foreground",
+  free: "bg-sky-500/15 text-sky-700",
+};
+
+function fmtZmw(value: number | null) {
+  if (value == null) return "-";
+  return `K${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtDate(value: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric" });
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+const UNZA_GREEN: [number, number, number] = [26, 92, 46];
 
 type StudentMetadata = {
   department?: string;
@@ -78,10 +133,155 @@ export function StudentProfilesTab() {
     queryKey: ["student-enrolments", selected?.id],
     enabled: !!selected?.id,
     queryFn: async () => {
-      const data = await apiGet<any[]>(`/enrolments?studentId=${selected!.id}`);
+      const data = await apiGet<StudentEnrolment[]>(`/enrolments?studentId=${selected!.id}`);
       return [...data].sort((a, b) => (b.enrolled_at ?? "").localeCompare(a.enrolled_at ?? ""));
     },
   });
+
+  const [exporting, setExporting] = useState(false);
+
+  async function exportStudentPdf() {
+    if (!selected) return;
+    setExporting(true);
+    try {
+      const enrolments = enrolmentsQuery.data ?? [];
+      const [{ jsPDF }, { default: autoTable }, logoData] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+        fetchAsDataUrl(unzaLogo.url),
+      ]);
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 40;
+
+      if (logoData) {
+        try {
+          doc.addImage(logoData, "PNG", margin, 24, 42, 42);
+        } catch {
+          // Unsupported image format — report still generates without the logo
+        }
+      }
+      const textX = logoData ? margin + 54 : margin;
+
+      doc.setTextColor(26, 26, 26);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("Student Record Export", textX, 42);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(90);
+      doc.text("University of Zambia — Technology and E-Learning Support Unit (TeLS)", textX, 58);
+
+      doc.setDrawColor(...UNZA_GREEN);
+      doc.setLineWidth(1.5);
+      doc.line(margin, 78, pageWidth - margin, 78);
+
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      doc.text(`Generated ${new Date().toLocaleString("en-GB")}`, margin, 92);
+
+      const idLabel = selected.category === "unza" ? "Student ID" : "NRC";
+      const idValue = selected.category === "unza" ? (selected.unza_student_id ?? "N/A") : (selected.national_id ?? "—");
+      const metadata = selected.metadata ?? {};
+
+      autoTable(doc, {
+        startY: 106,
+        margin: { left: margin, right: margin },
+        head: [["Profile", ""]],
+        body: [
+          ["Full name", selected.full_name],
+          ["Category", selected.category === "unza" ? "UNZA" : "Non-UNZA"],
+          [idLabel, idValue],
+          ["National ID (NRC)", selected.national_id ?? "—"],
+          ["Primary email", selected.email ?? "-"],
+          ["Primary phone", selected.phone ?? "-"],
+          ["Secondary email", metadata.secondary_email ?? "-"],
+          ["Secondary phone", metadata.secondary_phone ?? "-"],
+          ["Address", [metadata.address_line, metadata.city, metadata.postal_code, metadata.country].filter(Boolean).join(", ") || "-"],
+          ["Department / faculty", metadata.department ?? "-"],
+          ["Program", metadata.program ?? "-"],
+          ["Year of study", metadata.year_of_study ?? "-"],
+          ["Study mode", metadata.study_mode ?? "-"],
+          ["Employer", metadata.employer ?? "-"],
+          ["Job title", metadata.job_title ?? "-"],
+          ["Coach / mentor", metadata.coach ?? "-"],
+          ["Skills / tags", (metadata.skills ?? []).join(", ") || "-"],
+          ["Account created", fmtDate(selected.created_at)],
+        ],
+        styles: { fontSize: 9, cellPadding: 5, lineColor: [225, 225, 225], lineWidth: 0.5 },
+        headStyles: { fillColor: UNZA_GREEN, textColor: 255, fontStyle: "bold" },
+        columnStyles: { 0: { cellWidth: 150, fontStyle: "bold" }, 1: { cellWidth: pageWidth - margin * 2 - 150 } },
+      });
+
+      const afterProfileY = (doc as any).lastAutoTable.finalY + 20;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(26, 26, 26);
+      doc.text(`Course registrations (${enrolments.length})`, margin, afterProfileY);
+
+      autoTable(doc, {
+        startY: afterProfileY + 10,
+        margin: { left: margin, right: margin },
+        head: [["Course", "Registered", "Started", "Completed", "Status", "Fee", "Payment", "Certificate"]],
+        body: enrolments.length
+          ? enrolments.map((e) => [
+              e.course?.name ?? "-",
+              fmtDate(e.enrolled_at),
+              fmtDate(e.started_at),
+              fmtDate(e.completed_at),
+              e.status,
+              fmtZmw(e.fee_charged),
+              PAY_LABEL[e.payment_status] ?? e.payment_status,
+              e.certificate?.certificate_code ?? "-",
+            ])
+          : [["No course registrations on record", "", "", "", "", "", "", ""]],
+        styles: { fontSize: 8, cellPadding: 5, lineColor: [225, 225, 225], lineWidth: 0.5 },
+        headStyles: { fillColor: UNZA_GREEN, textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [245, 247, 245] },
+      });
+
+      if (metadata.learning_goals || metadata.status_notes) {
+        const afterEnrolY = (doc as any).lastAutoTable.finalY + 20;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text("Notes", margin, afterEnrolY);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(80);
+        const notesLines = doc.splitTextToSize(
+          [
+            metadata.learning_goals ? `Learning goals: ${metadata.learning_goals}` : null,
+            metadata.status_notes ? `Coach notes: ${metadata.status_notes}` : null,
+          ].filter(Boolean).join("\n\n"),
+          pageWidth - margin * 2,
+        );
+        doc.text(notesLines, margin, afterEnrolY + 16);
+      }
+
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(140);
+        doc.text(
+          "CEMIS — UNZA Technology and E-Learning Support Unit",
+          margin,
+          doc.internal.pageSize.getHeight() - 20,
+        );
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 60, doc.internal.pageSize.getHeight() - 20);
+      }
+
+      doc.save(`${selected.full_name.replace(/\s+/g, "_")}_record.pdf`);
+      toast.success("Student record exported");
+    } catch (error: any) {
+      toast.error(error.message ?? "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -391,9 +591,15 @@ export function StudentProfilesTab() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Tag className="h-4 w-4" /> Rich metadata enables deeper student insights.
             </div>
-            <Button onClick={saveProfile} disabled={!selected || busy}>
-              {busy ? "Saving..." : "Save profile"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={exportStudentPdf} disabled={!selected || exporting}>
+                <Download className="mr-1 h-4 w-4" />
+                {exporting ? "Exporting..." : "Export record (PDF)"}
+              </Button>
+              <Button onClick={saveProfile} disabled={!selected || busy}>
+                {busy ? "Saving..." : "Save profile"}
+              </Button>
+            </div>
           </CardFooter>
         </Card>
 
@@ -422,14 +628,21 @@ export function StudentProfilesTab() {
                   ) : (enrolmentsQuery.data ?? []).length === 0 ? (
                     <div className="text-muted-foreground">No enrolments</div>
                   ) : (
-                    <div className="flex flex-col gap-2">
-                      {(enrolmentsQuery.data ?? []).map((e: any) => (
-                        <div key={e.id} className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3">
+                      {(enrolmentsQuery.data ?? []).map((e) => (
+                        <div key={e.id} className="flex items-center justify-between gap-3 rounded-lg border p-2">
                           <div>
-                            <div className="font-medium">{e.course?.name ?? e.course?.id}</div>
-                            <div className="text-xs text-muted-foreground">{e.course?.code ?? ""} - {e.status}</div>
+                            <div className="font-medium">{e.course?.name ?? "-"}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {e.status} · Registered {fmtDate(e.enrolled_at)}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString() : ''}</div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="text-xs font-mono">{fmtZmw(e.fee_charged)}</span>
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${PAY_TONE[e.payment_status]}`}>
+                              {PAY_LABEL[e.payment_status] ?? e.payment_status}
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
